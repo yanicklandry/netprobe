@@ -1,0 +1,104 @@
+{
+  "test_results": [
+    {
+      "latency": [
+        {
+          "timestamp": "2025-09-01T10:58:03.585106",
+          "endpoint": "8.8.8.8",
+          "host": "8.8.8.8",
+          "avg_latency_ms": 70.96319198608398,
+          "min_latency_ms": 68.57705116271973,
+          "max_latency_ms": 72.0372200012207,
+          "packet_loss_percent": 0.0,
+          "jitter_ms": 1.4294335496276085,
+          "successful_pings": 5,
+          "total_pings": 5,
+          "method": "TCP:80"
+        },
+        {
+          "timestamp": "2025-09-01T10:58:03.952523",
+          "endpoint": "1.1.1.1",
+          "host": "1.1.1.1",
+          "avg_latency_ms": 73.24142456054688,
+          "min_latency_ms": 68.78209114074707,
+          "max_latency_ms": 82.78894424438477,
+          "packet_loss_percent": 0.0,
+          "jitter_ms": 5.51000494245014,
+          "successful_pings": 5,
+          "total_pings": 5,
+          "method": "TCP:80"
+        },
+        {
+          "timestamp": "2025-09-01T10:58:04.287576",
+          "endpoint": "208.67.222.222",
+          "host": "208.67.222.222",
+          "avg_latency_ms": 66.75601005554199,
+          "min_latency_ms": 65.74201583862305,
+          "max_latency_ms": 69.27204132080078,
+          "packet_loss_percent": 0.0,
+          "jitter_ms": 1.4338647957651072,
+          "successful_pings": 5,
+          "total_pings": 5,
+          "method": "TCP:80"
+        }
+      ],
+      "packet_loss": [],
+      "jitter": [],
+      "dns_times": [
+        {
+          "timestamp": "2025-09-01T10:58:04.299306",
+          "domain": "google.com",
+          "resolution_time_ms": 11.651039123535156,
+          "resolved_ips": [
+            "172.217.2.142"
+          ]
+        }
+      ],
+      "bandwidth": {
+        "download_speed_mbps": 15.016192636639522,
+        "total_bytes": 5250635,
+        "total_time_seconds": 2.797318935394287,
+        "test_url": "https://speed.cloudflare.com/__down?bytes=10485760"
+      },
+      "start_time": "2025-09-01T10:58:03.228803",
+      "end_time": "2025-09-01T10:58:09.029972",
+      "test_scenario": "default",
+      "vpn_status": {
+        "connected": false,
+        "error": "No supported VPN client found"
+      }
+    }
+  ],
+  "statistics": [
+    {
+      "latency_stats": {
+        "min_ms": 66.75601005554199,
+        "max_ms": 73.24142456054688,
+        "avg_ms": 70.32020886739095,
+        "median_ms": 70.96319198608398,
+        "p95_ms": 73.01360130310059,
+        "std_dev_ms": 3.2901703289685624
+      },
+      "packet_loss_stats": {
+        "min_percent": 0.0,
+        "max_percent": 0.0,
+        "avg_percent": 0.0,
+        "total_tests": 3
+      },
+      "jitter_stats": {
+        "min_ms": 1.4294335496276085,
+        "max_ms": 5.51000494245014,
+        "avg_ms": 2.7911010959476186,
+        "std_dev_ms": 2.354640843925085
+      },
+      "dns_stats": {
+        "min_ms": 11.651039123535156,
+        "max_ms": 11.651039123535156,
+        "avg_ms": 11.651039123535156,
+        "median_ms": 11.651039123535156
+      },
+      "quality_score": 85
+    }
+  ],
+  "export_time": "2025-09-01T10:58:09.030255"
+}
