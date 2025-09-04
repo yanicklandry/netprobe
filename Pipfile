@@ -10,6 +10,9 @@ dnspython = "*"
 click = "*"
 pytest = "*"
 pytest-mock = "*"
+tqdm = "*"
+geocoder = "*"
+psutil = "*"
 
 [dev-packages]
 

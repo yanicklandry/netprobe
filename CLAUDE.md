@@ -90,9 +90,47 @@ Create a comprehensive internet connection reliability testing tool that goes be
 - Performance impact <5% of available bandwidth during testing
 - Cross-platform compatibility (Windows, macOS, Linux)
 
+## Project Structure
+
+```
+netprobe/
+├── netprobe.py           # Main application
+├── test_netprobe.py      # Test suite
+├── CLAUDE.md            # Project documentation
+├── README.md            # User documentation
+├── Pipfile              # Dependencies
+├── .gitignore           # Git ignore rules
+└── results/             # Test results (git-ignored)
+    ├── *.json           # JSON exports
+    └── *.csv            # CSV exports
+```
+
+## New Features Added
+
+### Debug Mode & Progress Bar
+- `--debug`: Enables verbose logging (original behavior)  
+- Normal mode: Shows clean progress bar with minimal output
+- Simplified final report with emoji indicators
+
+### Location Tracking
+- `--detect-location`: Auto-detects current location via IP geolocation
+- `--location "Place Name"`: Specify test location (e.g., hotel, café)
+- Location info included in results and exports
+- Perfect for testing "Hotel ABC has 85% connection quality"
+
+### Example Usage:
+```bash
+# Test at Starbucks with location tracking
+./netprobe.py --location "Starbucks Times Square NYC" --json cafe_test.json
+
+# Auto-detect location and compare VPN performance  
+./netprobe.py --detect-location --compare-vpn --duration 60
+```
+
 ## Future Enhancements
 - Web interface for easier use
 - Mobile app version
 - Integration with monitoring systems (Prometheus, etc.)
 - ISP comparison database
 - Network troubleshooting suggestions
+- Location-based performance database

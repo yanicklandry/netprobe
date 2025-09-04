@@ -11,6 +11,7 @@ import csv
 import socket
 import subprocess
 import sys
+import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import click
@@ -18,186 +19,119 @@ import requests
 from pythonping import ping
 import dns.resolver
 import dns.exception
+from tqdm import tqdm
+import geocoder
+from vpn_manager import VPNManager
 
 
-class VPNManager:
-    """Manage VPN connections for testing."""
+class LocationManager:
+    """Manage location detection and naming for test results."""
     
     def __init__(self):
-        self.vpn_type = self._detect_vpn()
-        self.original_state = None
-    
-    def _detect_vpn(self) -> Optional[str]:
-        """Detect which VPN client is available."""
-        vpn_commands = {
-            'nordvpn': ['nordvpn', '--help'],
-            'protonvpn-cli': ['protonvpn-cli', '--help'],
-            'expressvpn': ['expressvpn', 'help'],
-            'surfshark': ['surfshark-vpn', '--help']
-        }
+        self.current_location = None
         
-        # First try CLI tools
-        for vpn_name, test_command in vpn_commands.items():
-            try:
-                result = subprocess.run(test_command, capture_output=True, text=True, timeout=5)
-                if result.returncode == 0:
-                    return vpn_name
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-        
-        # On macOS, check for GUI apps that can be controlled via AppleScript
-        if sys.platform == 'darwin':
-            try:
-                # Check if NordVPN app is available
-                result = subprocess.run(['osascript', '-e', 'tell application "NordVPN" to get name'], 
-                                      capture_output=True, text=True, timeout=5)
-                if result.returncode == 0 and 'NordVPN' in result.stdout:
-                    return 'nordvpn-macos'
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-        
-        return None
-    
-    def get_status(self) -> Dict[str, Any]:
-        """Get current VPN status."""
-        if not self.vpn_type:
-            return {'connected': False, 'error': 'No supported VPN client found'}
-        
+    def get_location(self) -> Dict[str, Any]:
+        """Get current GPS location and nearby places."""
         try:
-            if self.vpn_type == 'nordvpn':
-                result = subprocess.run(['nordvpn', 'status'], capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    output = result.stdout.lower()
-                    connected = 'connected' in output and 'disconnected' not in output
-                    server = None
-                    if connected:
-                        for line in result.stdout.split('\n'):
-                            if 'server:' in line.lower():
-                                server = line.split(':')[1].strip()
-                                break
-                    return {'connected': connected, 'server': server, 'client': 'nordvpn'}
-            
-            elif self.vpn_type == 'nordvpn-macos':
-                # Use AppleScript to check NordVPN app status on macOS
-                applescript = '''
-                tell application "NordVPN"
-                    try
-                        set connectionStatus to connection status
-                        if connectionStatus is "Connected" then
-                            return "Connected"
-                        else
-                            return "Disconnected"
-                        end if
-                    on error
-                        return "Disconnected"
-                    end try
-                end tell
-                '''
-                result = subprocess.run(['osascript', '-e', applescript], capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    connected = 'Connected' in result.stdout
-                    return {'connected': connected, 'server': None, 'client': 'nordvpn-macos'}
-            
-            elif self.vpn_type == 'protonvpn-cli':
-                result = subprocess.run(['protonvpn-cli', 'status'], capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    connected = 'connected' in result.stdout.lower()
-                    return {'connected': connected, 'client': 'protonvpn-cli'}
-            
-            elif self.vpn_type == 'expressvpn':
-                result = subprocess.run(['expressvpn', 'status'], capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    connected = 'connected' in result.stdout.lower()
-                    return {'connected': connected, 'client': 'expressvpn'}
-                    
-        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-            return {'connected': False, 'error': str(e)}
-        
-        return {'connected': False, 'error': 'Failed to get VPN status'}
-    
-    def connect(self) -> bool:
-        """Connect to VPN."""
-        if not self.vpn_type:
-            return False
-        
-        try:
-            if self.vpn_type == 'nordvpn':
-                result = subprocess.run(['nordvpn', 'connect'], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0
-            
-            elif self.vpn_type == 'nordvpn-macos':
-                # Use AppleScript to connect NordVPN app on macOS
-                applescript = '''
-                tell application "NordVPN"
-                    activate
-                    try
-                        connect to quick connect
-                        return "Success"
-                    on error
-                        return "Failed"
-                    end try
-                end tell
-                '''
-                result = subprocess.run(['osascript', '-e', applescript], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0 and 'Success' in result.stdout
-            
-            elif self.vpn_type == 'protonvpn-cli':
-                result = subprocess.run(['protonvpn-cli', 'connect', '--fastest'], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0
-            
-            elif self.vpn_type == 'expressvpn':
-                result = subprocess.run(['expressvpn', 'connect'], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0
+            # Get current location using IP geolocation
+            g = geocoder.ip('me')
+            if g.latlng:
+                lat, lng = g.latlng
+                location_data = {
+                    'latitude': lat,
+                    'longitude': lng,
+                    'city': g.city or 'Unknown',
+                    'country': g.country or 'Unknown',
+                    'ip_address': g.ip,
+                    'method': 'ip_geolocation'
+                }
                 
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return False
-        
-        return False
-    
-    def disconnect(self) -> bool:
-        """Disconnect from VPN."""
-        if not self.vpn_type:
-            return True  # Already disconnected
-        
-        try:
-            if self.vpn_type == 'nordvpn':
-                result = subprocess.run(['nordvpn', 'disconnect'], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0
-            
-            elif self.vpn_type == 'protonvpn-cli':
-                result = subprocess.run(['protonvpn-cli', 'disconnect'], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0
-            
-            elif self.vpn_type == 'expressvpn':
-                result = subprocess.run(['expressvpn', 'disconnect'], capture_output=True, text=True, timeout=30)
-                return result.returncode == 0
+                # Try to get more precise location with additional services
+                try:
+                    import time
+                    time.sleep(0.5)  # Rate limiting for reverse geocoding
+                    precise = geocoder.osm([lat, lng], method='reverse')
+                    if precise.address:
+                        location_data['address'] = precise.address
+                        location_data['method'] = 'reverse_geocoding'
+                except Exception as e:
+                    # Silently ignore reverse geocoding errors (rate limiting, etc.)
+                    if '403' not in str(e):  # Only log non-rate-limit errors in debug
+                        pass
                 
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return False
-        
-        return False
+                return location_data
+            else:
+                return {'error': 'Could not determine location'}
+                
+        except Exception as e:
+            return {'error': f'Location detection failed: {str(e)}'}
     
-    def save_state(self):
-        """Save current VPN state."""
-        self.original_state = self.get_status()
+    def search_nearby_places(self, location_name: str) -> Dict[str, Any]:
+        """Search for a specific place name near current location."""
+        import time
+        
+        # Try multiple geocoding services as fallbacks
+        geocoding_services = [
+            ('ip', lambda name: geocoder.ip('me')),  # Get current location as fallback
+            ('arcgis', lambda name: geocoder.arcgis(name)),  # ArcGIS as alternative
+            ('osm', lambda name: geocoder.osm(name))  # OpenStreetMap as last resort
+        ]
+        
+        for service_name, service_func in geocoding_services:
+            try:
+                if service_name == 'osm':
+                    time.sleep(1)  # Add delay for OSM rate limiting
+                
+                if service_name == 'ip':
+                    # For IP-based, just get current location and use provided name
+                    g = service_func(location_name)
+                    if g.latlng:
+                        return {
+                            'name': location_name,
+                            'latitude': g.latlng[0],
+                            'longitude': g.latlng[1],
+                            'address': f"Near {g.city}, {g.country}" if g.city else "Location detected",
+                            'method': f'{service_name}_fallback'
+                        }
+                else:
+                    g = service_func(location_name)
+                    if g.latlng:
+                        return {
+                            'name': location_name,
+                            'latitude': g.latlng[0],
+                            'longitude': g.latlng[1],
+                            'address': g.address,
+                            'method': f'{service_name}_search'
+                        }
+                        
+            except Exception as e:
+                error_msg = str(e)
+                if '403' in error_msg or 'Forbidden' in error_msg:
+                    # Skip to next service if this one is rate limited
+                    continue
+                elif service_name == geocoding_services[-1][0]:  # Last service failed
+                    return {'error': f'All location services failed. Last error: {error_msg}'}
+        
+        return {'error': f'Could not find location: {location_name}. All geocoding services exhausted.'}
     
-    def restore_state(self):
-        """Restore VPN to original state."""
-        if not self.original_state:
-            return True
+    def get_location_summary(self, location_data: Dict[str, Any]) -> str:
+        """Get a human-readable location summary."""
+        if 'error' in location_data:
+            return "Location unknown"
         
-        current_status = self.get_status()
-        original_connected = self.original_state.get('connected', False)
-        current_connected = current_status.get('connected', False)
-        
-        if original_connected and not current_connected:
-            print("Restoring VPN connection...")
-            return self.connect()
-        elif not original_connected and current_connected:
-            print("Restoring VPN disconnection...")
-            return self.disconnect()
-        
-        return True  # No change needed
+        if 'name' in location_data:
+            return location_data['name']
+        elif 'address' in location_data:
+            # Extract key parts of address
+            address = location_data['address']
+            parts = address.split(',')
+            if len(parts) >= 2:
+                return f"{parts[0].strip()}, {parts[-1].strip()}"
+            return address
+        elif 'city' in location_data and 'country' in location_data:
+            return f"{location_data['city']}, {location_data['country']}"
+        else:
+            return "Location detected"
 
 
 class ConnectionTester:
@@ -210,19 +144,72 @@ class ConnectionTester:
             '208.67.222.222'  # OpenDNS
         ]
         self.duration = duration
+        self.force_icmp = False  # Will be set by main() if --icmp flag is used
+        self.debug = False  # Will be set by main() if --debug flag is used
+        self.local_gateway = self._discover_local_gateway()
         self.results = {
             'latency': [],
             'packet_loss': [],
             'jitter': [],
             'dns_times': [],
             'bandwidth': None,
+            'local_router': [],
             'start_time': None,
             'end_time': None
         }
     
+    def _discover_local_gateway(self) -> str:
+        """Discover the local gateway/router IP address."""
+        try:
+            if sys.platform == 'darwin' or sys.platform.startswith('linux'):
+                # Use route command to find gateway
+                result = subprocess.run(['route', '-n', 'get', 'default'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'gateway:' in line.lower():
+                            return line.split(':')[1].strip()
+                
+                # Fallback: try netstat
+                result = subprocess.run(['netstat', '-rn'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if line.startswith('default') or line.startswith('0.0.0.0'):
+                            parts = line.split()
+                            if len(parts) > 1:
+                                return parts[1]
+                                
+            elif sys.platform == 'win32':
+                # Windows: use route print
+                result = subprocess.run(['route', 'print', '0.0.0.0'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if '0.0.0.0' in line and '0.0.0.0' in line[:15]:
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                return parts[2]
+        except:
+            pass
+        
+        return None
+    
+    def test_local_router(self, count: int = 5) -> Dict[str, Any]:
+        """Test connectivity to local router/gateway."""
+        if not self.local_gateway:
+            return {'error': 'Local gateway not found'}
+        
+        if self.debug:
+            print(f"Testing connectivity to local router ({self.local_gateway})...")
+        
+        # Test using TCP connection test since ICMP might be blocked
+        return self._tcp_ping_test(self.local_gateway, count, port=80)
+    
     def test_latency_and_packet_loss(self, host: str, count: int = 10) -> Dict[str, Any]:
         """Test latency and packet loss for a given host."""
-        print(f"Testing latency and packet loss to {host}...")
+        if self.debug:
+            print(f"Testing latency and packet loss to {host}...")
         
         try:
             # First try ICMP ping
@@ -253,9 +240,22 @@ class ConnectionTester:
             }
             
         except Exception as e:
-            # Fallback to TCP connection test
-            print(f"ICMP ping failed ({str(e)}), trying TCP connection test...")
-            return self._tcp_ping_test(host, count)
+            # Fallback to TCP connection test (common on macOS due to permissions)
+            if not self.force_icmp:
+                if self.debug:
+                    if "Operation not permitted" in str(e) or "Permission denied" in str(e):
+                        print(f"Using TCP connection test (ICMP requires elevated permissions)...")
+                    else:
+                        print(f"ICMP ping failed ({str(e)}), trying TCP connection test...")
+                return self._tcp_ping_test(host, count)
+            else:
+                # User forced ICMP but it failed - show error and exit
+                print(f"ICMP ping failed: {str(e)}")
+                print("Hint: Try running with sudo for ICMP permissions, or remove --icmp flag")
+                return {
+                    'host': host,
+                    'error': f'ICMP ping failed: {str(e)}'
+                }
     
     def _tcp_ping_test(self, host: str, count: int = 10, port: int = 80) -> Dict[str, Any]:
         """Fallback TCP connection test when ICMP ping fails."""
@@ -302,7 +302,8 @@ class ConnectionTester:
     
     def test_dns_resolution(self, domain: str = 'google.com') -> Dict[str, Any]:
         """Test DNS resolution time."""
-        print(f"Testing DNS resolution for {domain}...")
+        if self.debug:
+            print(f"Testing DNS resolution for {domain}...")
         
         try:
             start_time = time.time()
@@ -322,7 +323,8 @@ class ConnectionTester:
             }
             
         except Exception as e:
-            print(f"DNS resolution error for {domain}: {str(e)}")
+            if self.debug:
+                print(f"DNS resolution error for {domain}: {str(e)}")
             return {
                 'domain': domain,
                 'error': str(e)
@@ -330,7 +332,8 @@ class ConnectionTester:
     
     def test_bandwidth(self) -> Dict[str, Any]:
         """Simple bandwidth test using a small file download."""
-        print("Testing bandwidth (download)...")
+        if self.debug:
+            print("Testing bandwidth (download)...")
         
         test_urls = [
             'https://speed.cloudflare.com/__down?bytes=10485760',  # 10MB
@@ -369,28 +372,54 @@ class ConnectionTester:
                         }
                 
             except Exception as e:
-                print(f"Bandwidth test failed for {url}: {str(e)}")
+                if self.debug:
+                    print(f"Bandwidth test failed for {url}: {str(e)}")
                 continue
         
         return {'error': 'All bandwidth tests failed'}
     
     def run_extended_test(self) -> Dict[str, Any]:
         """Run the complete extended test suite."""
-        print(f"Starting {self.duration}-second connection reliability test...")
-        print("=" * 50)
+        if self.debug:
+            print(f"Starting {self.duration}-second connection reliability test...")
+            print("=" * 50)
         
         self.results['start_time'] = datetime.now().isoformat()
         start_time = time.time()
         
-        # Test each endpoint multiple times during the duration
+        # Calculate test intervals and total iterations
         interval = max(5, self.duration // 10)  # Test every 5 seconds or 10 times total
+        estimated_iterations = max(1, int(self.duration / interval))
+        
+        if not self.debug:
+            # Create progress bar for normal mode
+            pbar = tqdm(
+                total=100,
+                desc="Testing connection reliability",
+                bar_format='{desc}: {percentage:3.0f}%|{bar}| {elapsed}',
+                ncols=70,
+                leave=False
+            )
+        
         test_count = 0
         
         while time.time() - start_time < self.duration:
             test_count += 1
-            print(f"\\nTest iteration {test_count}...")
+            
+            if self.debug:
+                print(f"\\nTest iteration {test_count}...")
             
             # Test latency and packet loss for each endpoint
+            # Test local router first
+            if self.local_gateway and test_count == 1:  # Only test once
+                router_result = self.test_local_router(count=3)
+                if 'avg_latency_ms' in router_result:
+                    self.results['local_router'].append({
+                        'timestamp': datetime.now().isoformat(),
+                        'gateway': self.local_gateway,
+                        **router_result
+                    })
+            
             for endpoint in self.endpoints:
                 result = self.test_latency_and_packet_loss(endpoint, count=5)
                 
@@ -409,23 +438,43 @@ class ConnectionTester:
                     **dns_result
                 })
             
+            # Update progress bar
+            if not self.debug:
+                elapsed = time.time() - start_time
+                progress = min(100, (elapsed / self.duration) * 100)
+                pbar.update(progress - pbar.n)  # Update by difference
+            
             # Sleep until next interval
             elapsed = time.time() - start_time
             next_test_time = test_count * interval
             if elapsed < next_test_time and elapsed < self.duration:
                 sleep_time = min(next_test_time - elapsed, self.duration - elapsed)
                 if sleep_time > 0:
-                    print(f"Waiting {sleep_time:.1f} seconds until next test...")
+                    if self.debug:
+                        print(f"Waiting {sleep_time:.1f} seconds until next test...")
                     time.sleep(sleep_time)
         
+        # Update progress bar to show bandwidth test
+        if not self.debug:
+            pbar.set_description("Running bandwidth test")
+            pbar.update(95 - pbar.n)
+        
         # Run bandwidth test once at the end
-        print("\\nRunning bandwidth test...")
+        if self.debug:
+            print("\\nRunning bandwidth test...")
         bandwidth_result = self.test_bandwidth()
         self.results['bandwidth'] = bandwidth_result
         
+        # Complete progress bar
+        if not self.debug:
+            pbar.update(100 - pbar.n)
+            pbar.set_description("Test completed")
+            pbar.close()
+        
         self.results['end_time'] = datetime.now().isoformat()
         
-        print("\\nTest completed!")
+        if self.debug:
+            print("\\nTest completed!")
         return self.results
 
 
@@ -555,47 +604,62 @@ class Reporter:
     
     @staticmethod
     def print_summary(results: Dict[str, Any], stats: Dict[str, Any]):
-        """Print a human-readable summary of the test results."""
-        print("\\n" + "=" * 60)
-        print("CONNECTION RELIABILITY TEST RESULTS")
-        print("=" * 60)
+        """Print a simplified summary of the test results."""
+        # Show location if available
+        if 'location' in results:
+            loc_mgr = LocationManager()
+            location_summary = loc_mgr.get_location_summary(results['location'])
+            print(f"\\n📍 Location: {location_summary}")
         
-        print(f"\\nTest Duration: {results['start_time']} to {results['end_time']}")
-        print(f"Overall Quality Score: {stats['quality_score']}/100")
+        # Show local router info if available
+        if results.get('local_router') and len(results['local_router']) > 0:
+            router_data = results['local_router'][0]
+            router_latency = router_data.get('avg_latency_ms', 0)
+            print(f"🏠 Router: {router_data.get('gateway', 'Unknown')} ({router_latency:.1f}ms)")
         
-        # Latency results
+        print(f"📊 Connection Quality Score: {stats['quality_score']}/100")
+        
+        # Show key metrics in a clean format
+        metrics = []
+        
         if stats['latency_stats']:
-            print(f"\\nLatency Statistics:")
-            print(f"  Average: {stats['latency_stats']['avg_ms']:.2f} ms")
-            print(f"  Minimum: {stats['latency_stats']['min_ms']:.2f} ms")
-            print(f"  Maximum: {stats['latency_stats']['max_ms']:.2f} ms")
-            print(f"  95th Percentile: {stats['latency_stats']['p95_ms']:.2f} ms")
+            avg_latency = stats['latency_stats']['avg_ms']
+            metrics.append(f"🏓 Latency: {avg_latency:.1f}ms")
         
-        # Packet loss results
         if stats['packet_loss_stats']:
-            print(f"\\nPacket Loss Statistics:")
-            print(f"  Average: {stats['packet_loss_stats']['avg_percent']:.2f}%")
-            print(f"  Maximum: {stats['packet_loss_stats']['max_percent']:.2f}%")
+            avg_loss = stats['packet_loss_stats']['avg_percent']
+            if avg_loss > 0:
+                metrics.append(f"📉 Packet Loss: {avg_loss:.1f}%")
         
-        # Jitter results
         if stats['jitter_stats']:
-            print(f"\\nJitter Statistics:")
-            print(f"  Average: {stats['jitter_stats']['avg_ms']:.2f} ms")
-            print(f"  Maximum: {stats['jitter_stats']['max_ms']:.2f} ms")
+            avg_jitter = stats['jitter_stats']['avg_ms']
+            if avg_jitter > 1:  # Only show if significant
+                metrics.append(f"📈 Jitter: {avg_jitter:.1f}ms")
         
-        # DNS results
         if stats['dns_stats']:
-            print(f"\\nDNS Resolution Statistics:")
-            print(f"  Average: {stats['dns_stats']['avg_ms']:.2f} ms")
-            print(f"  Minimum: {stats['dns_stats']['min_ms']:.2f} ms")
-            print(f"  Maximum: {stats['dns_stats']['max_ms']:.2f} ms")
+            avg_dns = stats['dns_stats']['avg_ms']
+            metrics.append(f"🌐 DNS: {avg_dns:.1f}ms")
         
-        # Bandwidth results
         if results['bandwidth'] and 'download_speed_mbps' in results['bandwidth']:
-            print(f"\\nBandwidth Test:")
-            print(f"  Download Speed: {results['bandwidth']['download_speed_mbps']:.2f} Mbps")
+            speed = results['bandwidth']['download_speed_mbps']
+            metrics.append(f"⬇️  Speed: {speed:.1f}Mbps")
         
-        print("\\n" + "=" * 60)
+        if metrics:
+            print("   " + " | ".join(metrics))
+        
+        # Quality assessment
+        score = stats['quality_score']
+        if score >= 90:
+            status = "🟢 Excellent"
+        elif score >= 80:
+            status = "🟡 Good"
+        elif score >= 70:
+            status = "🟠 Fair"
+        else:
+            status = "🔴 Poor"
+        
+        print(f"   Connection Status: {status}")
+        print()
     
     @staticmethod
     def export_json(results: Dict[str, Any], stats: Dict[str, Any], filename: str):
@@ -633,12 +697,16 @@ class Reporter:
 @click.command()
 @click.option('--duration', '-d', default=60, help='Test duration in seconds (default: 60)')
 @click.option('--endpoints', '-e', multiple=True, help='Additional test endpoints')
-@click.option('--json', 'export_json', help='Export results to JSON file')
-@click.option('--csv', 'export_csv', help='Export latency data to CSV file')
+@click.option('--json', 'export_json', help='Export results to JSON file (default: results/netprobe_TIMESTAMP.json)')
+@click.option('--csv', 'export_csv', help='Export latency data to CSV file (default: results/netprobe_TIMESTAMP.csv)')
 @click.option('--compare-vpn', is_flag=True, help='Test with and without VPN (toggles VPN state)')
-@click.option('--vpn-only', is_flag=True, help='Test only with VPN enabled')
-@click.option('--no-vpn', is_flag=True, help='Test only without VPN')
-def main(duration, endpoints, export_json, export_csv, compare_vpn, vpn_only, no_vpn):
+@click.option('--icmp', is_flag=True, help='Force ICMP ping (requires sudo/elevated permissions)')
+@click.option('--debug', is_flag=True, help='Enable debug mode with verbose output')
+@click.option('--location', help='Specify test location (e.g., "Starbucks Times Square" or "Hilton Hotel NYC")')
+@click.option('--detect-location', is_flag=True, help='Auto-detect current location')
+@click.option('--no-interactive', is_flag=True, help='Skip interactive VPN prompts (for automation)')
+@click.option('--check-isolation', is_flag=True, help='Check network isolation before testing')
+def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug, location, detect_location, no_interactive, check_isolation):
     """
     NetProbe - Internet Connection Reliability Tool
     
@@ -648,33 +716,116 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, vpn_only, no
     print("NetProbe - Internet Connection Reliability Tool")
     print("=" * 50)
     
-    # Validate VPN options
-    vpn_options = sum([compare_vpn, vpn_only, no_vpn])
-    if vpn_options > 1:
-        print("Error: Only one VPN option can be specified at a time.")
-        exit(1)
+    # Check network isolation if requested
+    if check_isolation:
+        try:
+            from network_isolation_detector import NetworkIsolationDetector
+            detector = NetworkIsolationDetector()
+            isolation_report = detector.generate_isolation_report()
+            detector.print_isolation_report(isolation_report)
+            
+            # Warn if isolation score is low
+            if isolation_report.get('isolation_score', 100) < 70:
+                print("\\n⚠️  Network isolation score is below 70. Consider:")
+                print("   • Closing high-bandwidth applications")
+                print("   • Testing during off-peak hours")
+                print("   • Using ethernet instead of WiFi if possible")
+                
+                if not no_interactive:
+                    response = input("\\nContinue with testing anyway? [y/N]: ").lower()
+                    if response != 'y':
+                        print("Test cancelled.")
+                        return
+        except ImportError:
+            print("⚠️  Network isolation detector not available (missing psutil)")
+        except Exception as e:
+            print(f"⚠️  Network isolation check failed: {e}")
     
-    # Initialize VPN manager
+    
+    # Initialize VPN manager and location manager
     vpn_manager = VPNManager()
+    vpn_manager.debug = debug  # Pass debug mode to VPN manager
+    location_manager = LocationManager()
+    
+    # Handle location detection/specification
+    # NOTE: Location should be detected without VPN to get actual physical location
+    location_data = None
+    original_vpn_connected = False
+    
+    if location:
+        # User specified a location name
+        location_data = location_manager.search_nearby_places(location)
+        if debug:
+            print(f"Location search result: {location_data}")
+    elif detect_location:
+        # For location detection, temporarily disconnect VPN if it's connected
+        current_vpn_status = vpn_manager.get_status()
+        original_vpn_connected = current_vpn_status.get('connected', False)
+        
+        if original_vpn_connected and compare_vpn:
+            if debug:
+                print("Temporarily checking VPN status for location detection...")
+            # Note: We can't auto-disconnect GUI VPN, but we can warn the user
+            if vpn_manager.vpn_type == 'nordvpn-macos':
+                if debug:
+                    print("Note: For accurate location detection, consider manually disconnecting VPN first")
+        
+        # Auto-detect current location (may show VPN location if connected)
+        location_data = location_manager.get_location()
+        if debug:
+            if original_vpn_connected:
+                print(f"Location detected (may be VPN server location): {location_data}")
+            else:
+                print(f"Auto-detected physical location: {location_data}")
+    
+    # Ensure results directory exists
+    os.makedirs('results', exist_ok=True)
+    
+    # Set default export filenames if not provided
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not export_json and not export_csv:
+        # If no export options specified, don't export by default
+        pass
+    else:
+        if export_json and export_json == True:  # Boolean True from flag
+            export_json = f"results/netprobe_{timestamp}.json"
+        elif export_json and not export_json.startswith('/') and not export_json.startswith('./'):
+            # Relative path, put in results directory
+            export_json = f"results/{export_json}"
+            
+        if export_csv and export_csv == True:  # Boolean True from flag
+            export_csv = f"results/netprobe_{timestamp}.csv"
+        elif export_csv and not export_csv.startswith('/') and not export_csv.startswith('./'):
+            # Relative path, put in results directory
+            export_csv = f"results/{export_csv}"
     
     # Initialize tester
     test_endpoints = list(endpoints) if endpoints else None
     tester = ConnectionTester(endpoints=test_endpoints, duration=duration)
+    tester.force_icmp = icmp  # Pass ICMP preference to tester
+    tester.debug = debug  # Pass debug mode to tester
     exit_code = 0
     
     try:
         # Check VPN status and capabilities
-        if compare_vpn or vpn_only or no_vpn:
+        if compare_vpn:
             vpn_status = vpn_manager.get_status()
             if vpn_manager.vpn_type:
                 print(f"Detected VPN client: {vpn_manager.vpn_type}")
                 print(f"Current VPN status: {'Connected' if vpn_status.get('connected') else 'Disconnected'}")
                 if vpn_status.get('server'):
                     print(f"Connected to server: {vpn_status['server']}")
+                
+                # Special handling for GUI-based VPN clients
+                if vpn_manager.vpn_type == 'nordvpn-macos' and compare_vpn:
+                    print("📝 NordVPN GUI detected. Interactive VPN comparison enabled:")
+                    print("   • Tool will prompt when VPN changes are needed")
+                    print("   • Simply connect/disconnect manually when prompted")
+                    print("   • VPN status detection works automatically")
                 print()
             else:
                 print("No supported VPN client found. Supported: NordVPN, ProtonVPN, ExpressVPN")
-                if compare_vpn or vpn_only:
+                if compare_vpn:
                     print("Cannot perform VPN testing without a supported VPN client.")
                     return
         
@@ -688,17 +839,17 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, vpn_only, no
         test_scenarios = []
         if compare_vpn:
             test_scenarios = [('without_vpn', False), ('with_vpn', True)]
-        elif vpn_only:
-            test_scenarios = [('with_vpn', True)]
-        elif no_vpn:
-            test_scenarios = [('without_vpn', False)]
         else:
             test_scenarios = [('default', None)]  # Don't change VPN state
         
         for scenario_name, vpn_should_be_connected in test_scenarios:
-            print(f"\\n{'='*60}")
-            print(f"RUNNING TEST: {scenario_name.replace('_', ' ').upper()}")
-            print(f"{'='*60}")
+            if debug:
+                print(f"\\n{'='*60}")
+                print(f"RUNNING TEST: {scenario_name.replace('_', ' ').upper()}")
+                print(f"{'='*60}")
+            elif len(test_scenarios) > 1:
+                scenario_display = scenario_name.replace('_', ' ').title()
+                print(f"\\n🔍 Testing {scenario_display}")
             
             # Configure VPN state if needed
             if vpn_should_be_connected is not None:
@@ -706,23 +857,97 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, vpn_only, no
                 current_connected = current_status.get('connected', False)
                 
                 if vpn_should_be_connected and not current_connected:
-                    print("Connecting to VPN...")
-                    if not vpn_manager.connect():
-                        print("Failed to connect to VPN. Skipping this test scenario.")
-                        continue
-                    time.sleep(5)  # Wait for connection to stabilize
+                    if debug:
+                        print("Connecting to VPN...")
+                    
+                    if vpn_manager.vpn_type == 'nordvpn-macos':
+                        # Interactive prompt for GUI VPN
+                        print(f"\n🔌 Please CONNECT your VPN manually now")
+                        print("   1. Open NordVPN app")
+                        print("   2. Click connect to any server")
+                        print("   3. Wait for connection to establish")
+                        
+                        # Wait for user to connect
+                        if no_interactive:
+                            print("❌ Interactive mode disabled. Skipping this test scenario.")
+                            continue
+                        
+                        try:
+                            input("Press Enter when VPN is connected and ready...")
+                        except (EOFError, KeyboardInterrupt):
+                            print("\\n❌ Interactive input not available. Skipping this test scenario.")
+                            continue
+                        
+                        # Verify connection
+                        new_status = vpn_manager.get_status()
+                        if not new_status.get('connected'):
+                            print("❌ VPN still appears disconnected. Skipping this test scenario.")
+                            continue
+                        else:
+                            print(f"✅ VPN connection detected! Server: {new_status.get('server', 'Unknown')}")
+                    else:
+                        # Try automatic connection for CLI VPNs
+                        if not vpn_manager.connect():
+                            print("⚠️  Failed to connect to VPN. Skipping this test scenario.")
+                            continue
+                    
+                    time.sleep(2)  # Brief pause for connection to stabilize
                     
                 elif not vpn_should_be_connected and current_connected:
-                    print("Disconnecting from VPN...")
-                    if not vpn_manager.disconnect():
-                        print("Failed to disconnect from VPN. Skipping this test scenario.")
-                        continue
-                    time.sleep(5)  # Wait for disconnection to stabilize
+                    if debug:
+                        print("Disconnecting from VPN...")
+                    
+                    if vpn_manager.vpn_type == 'nordvpn-macos':
+                        # Interactive prompt for GUI VPN  
+                        print(f"\n🔌 Please DISCONNECT your VPN manually now")
+                        print("   1. Open NordVPN app")
+                        print("   2. Click disconnect")
+                        print("   3. Wait for disconnection to complete")
+                        
+                        # Wait for user to disconnect
+                        if no_interactive:
+                            print("❌ Interactive mode disabled. Skipping this test scenario.")
+                            continue
+                        
+                        try:
+                            input("Press Enter when VPN is disconnected and ready...")
+                        except (EOFError, KeyboardInterrupt):
+                            print("\\n❌ Interactive input not available. Skipping this test scenario.")
+                            continue
+                        
+                        # Verify disconnection
+                        new_status = vpn_manager.get_status()
+                        if new_status.get('connected'):
+                            print("❌ VPN still appears connected. Skipping this test scenario.")
+                            continue
+                        else:
+                            print("✅ VPN disconnection detected!")
+                    else:
+                        # Try automatic disconnection for CLI VPNs
+                        if not vpn_manager.disconnect():
+                            print("⚠️  Failed to disconnect from VPN. Skipping this test scenario.")
+                            continue
+                    
+                    time.sleep(2)  # Brief pause for disconnection to stabilize
             
             # Run the test
             results = tester.run_extended_test()
             results['test_scenario'] = scenario_name
             results['vpn_status'] = vpn_manager.get_status()
+            
+            if debug:
+                print(f"DEBUG: Stored scenario_name='{scenario_name}', vpn_connected={results['vpn_status'].get('connected')}")
+            
+            # Validate VPN state matches expected scenario
+            vpn_connected = results['vpn_status'].get('connected', False)
+            if scenario_name == 'without_vpn' and vpn_connected:
+                print("⚠️  WARNING: VPN is still connected during 'without VPN' test. Results may not be accurate.")
+            elif scenario_name == 'with_vpn' and not vpn_connected:
+                print("⚠️  WARNING: VPN is disconnected during 'with VPN' test. Results may not be accurate.")
+            
+            # Add location information to results
+            if location_data:
+                results['location'] = location_data
             
             # Calculate statistics
             stats = StatisticsCalculator.calculate_statistics(results)
@@ -741,18 +966,56 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, vpn_only, no
             print("="*60)
             
             for i, (results, stats) in enumerate(zip(all_results, all_stats)):
-                scenario = results['test_scenario'].replace('_', ' ').title()
+                scenario_key = results['test_scenario']
                 vpn_status = results['vpn_status']
-                vpn_info = f" ({vpn_status.get('server', 'Unknown server')})" if vpn_status.get('connected') else ""
+                
+                if debug:
+                    print(f"DEBUG: Processing result {i}: scenario_key='{scenario_key}', connected={vpn_status.get('connected')}")
+                
+                # Format scenario name correctly and check for mismatches
+                vpn_connected = vpn_status.get('connected', False)
+                if scenario_key == 'without_vpn':
+                    scenario = "Without Vpn"
+                    if vpn_connected:
+                        scenario += " ⚠️ (VPN was still connected)"
+                elif scenario_key == 'with_vpn':
+                    scenario = "With Vpn"  
+                    if not vpn_connected:
+                        scenario += " ⚠️ (VPN was disconnected)"
+                else:
+                    scenario = scenario_key.replace('_', ' ').title()
+                
+                vpn_info = f" ({vpn_status.get('server', 'Unknown server')})" if vpn_connected else ""
                 
                 print(f"\\n{scenario}{vpn_info}:")
                 print(f"  Quality Score: {stats['quality_score']}/100")
+                
+                # Build emoji summary line like the individual test results
+                summary_parts = []
                 if stats.get('latency_stats'):
-                    print(f"  Average Latency: {stats['latency_stats']['avg_ms']:.2f} ms")
+                    latency = stats['latency_stats']['avg_ms']
+                    summary_parts.append(f"🏓 Latency: {latency:.1f}ms")
+                
                 if stats.get('packet_loss_stats'):
-                    print(f"  Average Packet Loss: {stats['packet_loss_stats']['avg_percent']:.2f}%")
+                    loss = stats['packet_loss_stats']['avg_percent']
+                    if loss > 0:
+                        summary_parts.append(f"📉 Packet Loss: {loss:.1f}%")
+                
+                if stats.get('jitter_stats'):
+                    jitter = stats['jitter_stats']['avg_ms']
+                    summary_parts.append(f"📈 Jitter: {jitter:.1f}ms")
+                
+                if stats.get('dns_stats'):
+                    dns = stats['dns_stats']['avg_ms']
+                    summary_parts.append(f"🌐 DNS: {dns:.1f}ms")
+                
                 if results['bandwidth'] and 'download_speed_mbps' in results['bandwidth']:
-                    print(f"  Download Speed: {results['bandwidth']['download_speed_mbps']:.2f} Mbps")
+                    speed = results['bandwidth']['download_speed_mbps']
+                    summary_parts.append(f"⬇️ Speed: {speed:.1f}Mbps")
+                
+                if summary_parts:
+                    summary_line = "   " + " | ".join(summary_parts)
+                    print(summary_line)
             
             # Calculate differences
             if len(all_stats) == 2:
