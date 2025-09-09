@@ -141,9 +141,12 @@ netprobe/
 ```
 
 ## Future Enhancements
-- Web interface for easier use
-- Mobile app version
-- Integration with monitoring systems (Prometheus, etc.)
-- ISP comparison database
-- Network troubleshooting suggestions
-- Location-based performance database
+
+**See [TODO.md](TODO.md) for comprehensive roadmap and implementation plan.**
+
+Key upcoming improvements:
+- Default 10s tests with auto-location and JSON logging
+- Simplified VPN testing and location management
+- Speed test accuracy improvements to match Google/Ookla results  
+- Location-based historical tracking with cute emoji displays
+- Comparison benchmarking against other speed test tools

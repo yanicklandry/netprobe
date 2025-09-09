@@ -12,6 +12,8 @@ import socket
 import subprocess
 import sys
 import os
+import threading
+import queue
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import click
@@ -331,38 +333,65 @@ class ConnectionTester:
             }
     
     def test_bandwidth(self) -> Dict[str, Any]:
-        """Simple bandwidth test using a small file download."""
+        """Advanced bandwidth test with parallel connections and multiple servers."""
         if self.debug:
             print("Testing bandwidth (download)...")
         
+        # High-quality test servers with larger files for sustained throughput
         test_urls = [
-            'https://speed.cloudflare.com/__down?bytes=10485760',  # 10MB
-            'http://speedtest.ftp.otenet.gr/files/test10Mb.db',    # Fallback
+            'https://speed.cloudflare.com/__down?bytes=104857600',  # 100MB Cloudflare
+            'https://proof.ovh.net/files/100Mb.dat',               # 100MB OVH
+            'https://speedtest.selectel.ru/100MB',                 # 100MB Selectel
+            'https://lg-mia.fdcservers.net/100MBtest.zip',        # 100MB FDC Miami
+            'http://speedtest.ftp.otenet.gr/files/test100Mb.db',   # 100MB Greek fallback
         ]
         
+        # Try parallel downloads first for maximum throughput
+        parallel_result = self._test_bandwidth_parallel(test_urls[:3])  # Use top 3 servers
+        if parallel_result and 'download_speed_mbps' in parallel_result:
+            return parallel_result
+        
+        # Fallback to single connection with larger files
         for url in test_urls:
             try:
                 start_time = time.time()
-                response = requests.get(url, timeout=30, stream=True)
+                
+                # Use larger chunk size and optimized headers
+                headers = {
+                    'User-Agent': 'NetProbe/1.0 (Speed Test)',
+                    'Accept-Encoding': 'identity',  # Disable compression for accurate measurement
+                    'Connection': 'keep-alive'
+                }
+                
+                response = requests.get(url, timeout=45, stream=True, headers=headers)
                 
                 if response.status_code == 200:
                     total_size = 0
-                    chunk_times = []
+                    chunk_size = 65536  # 64KB chunks for better performance
+                    min_test_size = 25 * 1024 * 1024  # 25MB minimum for sustained speed
+                    max_test_time = 15  # Max 15 seconds per test
                     
-                    for chunk in response.iter_content(chunk_size=8192):
-                        chunk_start = time.time()
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if not chunk:
+                            break
                         total_size += len(chunk)
-                        chunk_times.append(time.time() - chunk_start)
                         
-                        # Break if we've downloaded enough for the test
-                        if total_size >= 5 * 1024 * 1024:  # 5MB limit
+                        current_time = time.time()
+                        elapsed = current_time - start_time
+                        
+                        # Stop if we have enough data or hit time limit
+                        if (total_size >= min_test_size and elapsed >= 3) or elapsed >= max_test_time:
                             break
                     
                     end_time = time.time()
                     total_time = end_time - start_time
                     
-                    if total_time > 0:
+                    # Require minimum test duration for accuracy
+                    if total_time >= 2.0 and total_size > 0:
                         download_speed_mbps = (total_size * 8) / (total_time * 1000000)  # Convert to Mbps
+                        
+                        if self.debug:
+                            print(f"  Downloaded {total_size / 1024 / 1024:.1f}MB in {total_time:.2f}s = {download_speed_mbps:.1f}Mbps")
                         
                         return {
                             'download_speed_mbps': download_speed_mbps,
@@ -377,6 +406,91 @@ class ConnectionTester:
                 continue
         
         return {'error': 'All bandwidth tests failed'}
+    
+    def _test_bandwidth_parallel(self, urls: List[str], num_connections: int = 2) -> Dict[str, Any]:
+        """Test bandwidth using parallel connections for maximum throughput."""
+        import threading
+        import queue
+        
+        if self.debug:
+            print(f"  Trying parallel downloads with {num_connections} connections...")
+        
+        results_queue = queue.Queue()
+        threads = []
+        start_time = time.time()
+        
+        def download_worker(url_idx: int, url: str):
+            try:
+                headers = {
+                    'User-Agent': f'NetProbe/1.0-{url_idx}',
+                    'Accept-Encoding': 'identity',
+                    'Connection': 'keep-alive'
+                }
+                
+                response = requests.get(url, timeout=30, stream=True, headers=headers)
+                if response.status_code == 200:
+                    bytes_downloaded = 0
+                    for chunk in response.iter_content(chunk_size=65536):
+                        if not chunk:
+                            break
+                        bytes_downloaded += len(chunk)
+                        
+                        # Stop after reasonable amount or time limit
+                        if time.time() - start_time > 10:  # 10 second limit
+                            break
+                        if bytes_downloaded > 50 * 1024 * 1024:  # 50MB per connection
+                            break
+                    
+                    results_queue.put(bytes_downloaded)
+                else:
+                    results_queue.put(0)
+            except Exception as e:
+                if self.debug:
+                    print(f"  Parallel download {url_idx} failed: {str(e)}")
+                results_queue.put(0)
+        
+        # Start parallel downloads
+        for i in range(min(num_connections, len(urls))):
+            url = urls[i]
+            thread = threading.Thread(target=download_worker, args=(i, url))
+            thread.start()
+            threads.append(thread)
+        
+        # Wait for all threads with timeout
+        for thread in threads:
+            thread.join(timeout=15)
+        
+        end_time = time.time()
+        total_time = end_time - start_time
+        
+        # Collect results
+        total_bytes = 0
+        successful_connections = 0
+        
+        while not results_queue.empty():
+            try:
+                bytes_result = results_queue.get_nowait()
+                if bytes_result > 0:
+                    total_bytes += bytes_result
+                    successful_connections += 1
+            except queue.Empty:
+                break
+        
+        if total_bytes > 0 and total_time > 2.0 and successful_connections > 0:
+            download_speed_mbps = (total_bytes * 8) / (total_time * 1000000)
+            
+            if self.debug:
+                print(f"  Parallel: {total_bytes / 1024 / 1024:.1f}MB via {successful_connections} connections in {total_time:.2f}s = {download_speed_mbps:.1f}Mbps")
+            
+            return {
+                'download_speed_mbps': download_speed_mbps,
+                'total_bytes': total_bytes,
+                'total_time_seconds': total_time,
+                'test_url': f'parallel-{successful_connections}x',
+                'parallel_connections': successful_connections
+            }
+        
+        return {}
     
     def run_extended_test(self) -> Dict[str, Any]:
         """Run the complete extended test suite."""
