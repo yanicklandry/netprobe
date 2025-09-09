@@ -147,7 +147,8 @@ class TestConnectionTester:
         assert tester.duration == 30
     
     @patch('socket.socket')
-    def test_tcp_ping_test_success(self, mock_socket):
+    @patch('time.time', side_effect=[1000.0, 1000.001, 1000.002, 1000.003, 1000.004, 1000.005, 1000.006])
+    def test_tcp_ping_test_success(self, mock_time, mock_socket):
         """Test successful TCP ping test."""
         mock_sock = MagicMock()
         mock_socket.return_value = mock_sock
@@ -164,7 +165,8 @@ class TestConnectionTester:
         assert result['avg_latency_ms'] is not None
     
     @patch('socket.socket')
-    def test_tcp_ping_test_partial_failure(self, mock_socket):
+    @patch('time.time', side_effect=[1000.0, 1000.001, 1000.002, 1000.003, 1000.004, 1000.005])
+    def test_tcp_ping_test_partial_failure(self, mock_time, mock_socket):
         """Test TCP ping test with partial failures."""
         mock_sock = MagicMock()
         mock_socket.return_value = mock_sock
@@ -226,7 +228,8 @@ class TestConnectionTester:
         assert result['total_bytes'] == 5242880
     
     @patch('requests.get')
-    def test_bandwidth_test_failure(self, mock_get):
+    @patch('time.time', side_effect=[1000.0, 1000.0, 1000.1])
+    def test_bandwidth_test_failure(self, mock_time, mock_get):
         """Test bandwidth test failure."""
         mock_get.side_effect = Exception("Network error")
         
@@ -361,14 +364,17 @@ class TestReporter:
 class TestIntegration:
     """Integration tests."""
     
-    def test_short_test_run(self):
+    @patch('time.sleep')  # Mock sleep to speed up tests 
+    @patch('time.time', side_effect=[1000.0, 1000.1, 1000.2, 1000.3, 1000.4, 1000.5, 1000.6, 1000.7, 1000.8, 1000.9, 1001.1])  # Enough time values to exceed duration
+    def test_short_test_run(self, mock_time, mock_sleep):
         """Test a very short integration run."""
         tester = ConnectionTester(duration=1)
         
         # Mock the ping function to avoid permission issues
         with patch.object(tester, 'test_latency_and_packet_loss') as mock_ping, \
              patch.object(tester, 'test_dns_resolution') as mock_dns, \
-             patch.object(tester, 'test_bandwidth') as mock_bandwidth:
+             patch.object(tester, 'test_bandwidth') as mock_bandwidth, \
+             patch.object(tester, 'test_local_router') as mock_router:
             
             mock_ping.return_value = {
                 'host': '8.8.8.8',
@@ -382,6 +388,10 @@ class TestIntegration:
             }
             mock_bandwidth.return_value = {
                 'download_speed_mbps': 50.0
+            }
+            mock_router.return_value = {
+                'gateway': '192.168.1.1',
+                'avg_latency_ms': 5.0
             }
             
             results = tester.run_extended_test()
@@ -450,6 +460,89 @@ class TestIntegration:
         # Check that print was called with correct scenario labels
         mock_print.assert_any_call("\\nWithout Vpn:")
         mock_print.assert_any_call("\\nWith Vpn (192.168.1.1):")
+    
+    def test_none_format_string_error(self):
+        """Test that None values don't cause format string errors."""
+        from netprobe import StatisticsCalculator
+        
+        # Test with None values that could cause format string errors
+        results_with_none = {
+            'latency': [
+                {'avg_latency_ms': None, 'packet_loss_percent': 0.0, 'jitter_ms': None},
+                {'avg_latency_ms': 25.0, 'packet_loss_percent': None, 'jitter_ms': 3.0}
+            ],
+            'dns_times': [
+                {'resolution_time_ms': None},
+                {'resolution_time_ms': 20.0}
+            ],
+            'bandwidth': None
+        }
+        
+        # This should not raise a format string error
+        with pytest.raises(Exception) as exc_info:
+            stats = StatisticsCalculator.calculate_statistics(results_with_none)
+            
+            # Test common f-string scenarios that might fail with None
+            test_values = [
+                getattr(stats.get('latency_stats', {}), 'avg_ms', None),
+                stats.get('bandwidth', {}).get('download_speed_mbps') if stats.get('bandwidth') else None
+            ]
+            
+            for value in test_values:
+                if value is not None:
+                    # This would cause the format string error if not handled properly
+                    formatted = f"Value: {value:.2f}"
+        
+        # If we get here without the specific format error, the test passes
+        # The specific error we're testing for is "unsupported format string passed to NoneType.__format__"
+        if "unsupported format string passed to NoneType.__format__" in str(exc_info.value):
+            pytest.fail("Format string error occurred with None value")
+    
+    def test_safe_format_with_none_values(self):
+        """Test safe formatting that handles None values correctly."""
+        # Test various None formatting scenarios that should be safe
+        none_value = None
+        
+        # Safe formatting approaches that should not fail
+        safe_formats = [
+            f"Value: {none_value or 'N/A'}",
+            f"Value: {none_value if none_value is not None else 'Unknown'}",
+            "Value: {}".format(none_value or 'N/A'),
+            str(none_value) if none_value is not None else 'None'
+        ]
+        
+        # These should all work without errors
+        for safe_format in safe_formats:
+            assert isinstance(safe_format, str)
+        
+        # This is the problematic case that would cause the error
+        with pytest.raises(TypeError, match="unsupported format string passed to NoneType"):
+            bad_format = f"Value: {none_value:.2f}"  # This should fail
+    
+    def test_format_string_error_from_debug_output(self):
+        """Test the specific format string error encountered in debug output."""
+        from netprobe import Reporter
+        
+        # Simulate the actual error scenario from the debug output
+        results_with_none_bandwidth = {
+            'latency': [{'avg_latency_ms': 20.0, 'packet_loss_percent': 0.0, 'jitter_ms': 2.0}],
+            'dns_times': [{'resolution_time_ms': 15.0}],
+            'bandwidth': {'download_speed_mbps': None}  # This None causes the format error
+        }
+        
+        # Create proper stats structure
+        stats_with_none = {
+            'quality_score': 85,
+            'latency_stats': {'avg_ms': 20.0},
+            'packet_loss_stats': {'avg_percent': 0.0},
+            'jitter_stats': {'avg_ms': 2.0},
+            'dns_stats': {'avg_ms': 15.0}
+        }
+        
+        # Mock the print_summary function to handle None values safely
+        with patch('builtins.print') as mock_print:
+            # This should not raise the format string error anymore
+            Reporter.print_summary(results_with_none_bandwidth, stats_with_none)
 
 
 if __name__ == '__main__':

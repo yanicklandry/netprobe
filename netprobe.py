@@ -614,8 +614,11 @@ class Reporter:
         # Show local router info if available
         if results.get('local_router') and len(results['local_router']) > 0:
             router_data = results['local_router'][0]
-            router_latency = router_data.get('avg_latency_ms', 0)
-            print(f"🏠 Router: {router_data.get('gateway', 'Unknown')} ({router_latency:.1f}ms)")
+            router_latency = router_data.get('avg_latency_ms')
+            if router_latency is not None:
+                print(f"🏠 Router: {router_data.get('gateway', 'Unknown')} ({router_latency:.1f}ms)")
+            else:
+                print(f"🏠 Router: {router_data.get('gateway', 'Unknown')} (N/A)")
         
         print(f"📊 Connection Quality Score: {stats['quality_score']}/100")
         
@@ -624,25 +627,34 @@ class Reporter:
         
         if stats['latency_stats']:
             avg_latency = stats['latency_stats']['avg_ms']
-            metrics.append(f"🏓 Latency: {avg_latency:.1f}ms")
+            if avg_latency is not None:
+                metrics.append(f"🏓 Latency: {avg_latency:.1f}ms")
+            else:
+                metrics.append("🏓 Latency: N/A")
         
         if stats['packet_loss_stats']:
             avg_loss = stats['packet_loss_stats']['avg_percent']
-            if avg_loss > 0:
+            if avg_loss is not None and avg_loss > 0:
                 metrics.append(f"📉 Packet Loss: {avg_loss:.1f}%")
         
         if stats['jitter_stats']:
             avg_jitter = stats['jitter_stats']['avg_ms']
-            if avg_jitter > 1:  # Only show if significant
+            if avg_jitter is not None and avg_jitter > 1:  # Only show if significant
                 metrics.append(f"📈 Jitter: {avg_jitter:.1f}ms")
         
         if stats['dns_stats']:
             avg_dns = stats['dns_stats']['avg_ms']
-            metrics.append(f"🌐 DNS: {avg_dns:.1f}ms")
+            if avg_dns is not None:
+                metrics.append(f"🌐 DNS: {avg_dns:.1f}ms")
+            else:
+                metrics.append("🌐 DNS: N/A")
         
         if results['bandwidth'] and 'download_speed_mbps' in results['bandwidth']:
             speed = results['bandwidth']['download_speed_mbps']
-            metrics.append(f"⬇️  Speed: {speed:.1f}Mbps")
+            if speed is not None:
+                metrics.append(f"⬇️  Speed: {speed:.1f}Mbps")
+            else:
+                metrics.append("⬇️  Speed: N/A")
         
         if metrics:
             print("   " + " | ".join(metrics))
@@ -994,24 +1006,36 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug,
                 summary_parts = []
                 if stats.get('latency_stats'):
                     latency = stats['latency_stats']['avg_ms']
-                    summary_parts.append(f"🏓 Latency: {latency:.1f}ms")
+                    if latency is not None:
+                        summary_parts.append(f"🏓 Latency: {latency:.1f}ms")
+                    else:
+                        summary_parts.append("🏓 Latency: N/A")
                 
                 if stats.get('packet_loss_stats'):
                     loss = stats['packet_loss_stats']['avg_percent']
-                    if loss > 0:
+                    if loss is not None and loss > 0:
                         summary_parts.append(f"📉 Packet Loss: {loss:.1f}%")
                 
                 if stats.get('jitter_stats'):
                     jitter = stats['jitter_stats']['avg_ms']
-                    summary_parts.append(f"📈 Jitter: {jitter:.1f}ms")
+                    if jitter is not None:
+                        summary_parts.append(f"📈 Jitter: {jitter:.1f}ms")
+                    else:
+                        summary_parts.append("📈 Jitter: N/A")
                 
                 if stats.get('dns_stats'):
                     dns = stats['dns_stats']['avg_ms']
-                    summary_parts.append(f"🌐 DNS: {dns:.1f}ms")
+                    if dns is not None:
+                        summary_parts.append(f"🌐 DNS: {dns:.1f}ms")
+                    else:
+                        summary_parts.append("🌐 DNS: N/A")
                 
                 if results['bandwidth'] and 'download_speed_mbps' in results['bandwidth']:
                     speed = results['bandwidth']['download_speed_mbps']
-                    summary_parts.append(f"⬇️ Speed: {speed:.1f}Mbps")
+                    if speed is not None:
+                        summary_parts.append(f"⬇️ Speed: {speed:.1f}Mbps")
+                    else:
+                        summary_parts.append("⬇️ Speed: N/A")
                 
                 if summary_parts:
                     summary_line = "   " + " | ".join(summary_parts)
@@ -1025,12 +1049,18 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug,
                 print(f"\\nDifferences (VPN impact):")
                 
                 if no_vpn_stats.get('latency_stats') and vpn_stats.get('latency_stats'):
-                    latency_diff = vpn_stats['latency_stats']['avg_ms'] - no_vpn_stats['latency_stats']['avg_ms']
-                    print(f"  Latency change: {latency_diff:+.2f} ms")
+                    vpn_latency = vpn_stats['latency_stats']['avg_ms']
+                    no_vpn_latency = no_vpn_stats['latency_stats']['avg_ms']
+                    if vpn_latency is not None and no_vpn_latency is not None:
+                        latency_diff = vpn_latency - no_vpn_latency
+                        print(f"  Latency change: {latency_diff:+.2f} ms")
                 
                 if no_vpn_stats.get('packet_loss_stats') and vpn_stats.get('packet_loss_stats'):
-                    loss_diff = vpn_stats['packet_loss_stats']['avg_percent'] - no_vpn_stats['packet_loss_stats']['avg_percent']
-                    print(f"  Packet loss change: {loss_diff:+.2f}%")
+                    vpn_loss = vpn_stats['packet_loss_stats']['avg_percent']
+                    no_vpn_loss = no_vpn_stats['packet_loss_stats']['avg_percent']
+                    if vpn_loss is not None and no_vpn_loss is not None:
+                        loss_diff = vpn_loss - no_vpn_loss
+                        print(f"  Packet loss change: {loss_diff:+.2f}%")
                 
                 score_diff = vpn_stats['quality_score'] - no_vpn_stats['quality_score']
                 print(f"  Quality score change: {score_diff:+d} points")

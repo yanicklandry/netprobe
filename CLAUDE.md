@@ -127,6 +127,19 @@ netprobe/
 ./netprobe.py --detect-location --compare-vpn --duration 60
 ```
 
+## Development Guidelines
+
+### Testing Requirements
+- **ALWAYS run tests before completing any task** - Use `./test.py` to run the full test suite
+- **Test suite must complete in under 1 second** - Use mocking to avoid network calls and slow operations
+- **Single test runner** - Use `test/test_netprobe.py` for all tests, no multiple test files
+- **Comprehensive mocking** - Mock all network operations, VPN calls, and external dependencies
+
+### Test Command
+```bash
+./test.py  # Should complete in <1s with full mocking
+```
+
 ## Future Enhancements
 - Web interface for easier use
 - Mobile app version
