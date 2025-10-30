@@ -17,6 +17,27 @@ A comprehensive Python tool for testing internet connection quality over extende
 
 ## Installation
 
+### Desktop App (Recommended)
+
+Download the latest release for your platform:
+
+- **macOS**: Download `NetProbe-darwin-x64.dmg` or `NetProbe-darwin-arm64.dmg` (for Apple Silicon)
+- **Windows**: Download `NetProbe-win32-x64.exe`
+
+#### macOS Installation
+1. Download the `.dmg` file
+2. Open the `.dmg` file
+3. Drag NetProbe to Applications folder
+4. First run: Right-click → Open (to bypass Gatekeeper)
+
+#### Windows Installation
+1. Download the `.exe` installer
+2. Run the installer (Windows Defender may show a warning - click "More info" → "Run anyway")
+3. Follow the installation wizard
+4. Launch NetProbe from Start Menu or Desktop
+
+### Command Line Installation
+
 Requirements: Python 3.7+, pipenv
 
 ```bash
@@ -26,9 +47,48 @@ pipenv install
 chmod +x netprobe.py
 ```
 
+### Development Setup
+
+For developers wanting to build from source:
+
+```bash
+git clone <repository>
+cd netprobe
+
+# Install Python dependencies
+pipenv install
+
+# Install Node.js dependencies for Electron
+npm install
+
+# Set up build environment
+node build-setup.js
+
+# Run desktop app in development mode
+npm run electron-dev
+
+# Build distributables
+npm run dist-mac    # on macOS
+npm run dist-win    # on Windows
+```
+
 ## Usage
 
-### Basic Usage
+### Desktop App Usage
+
+1. **Launch NetProbe** from Applications (macOS) or Start Menu (Windows)
+2. **Configure Test Settings**:
+   - Set test duration (10-300 seconds)
+   - Enter location name or auto-detect
+   - Enable VPN comparison if needed
+   - Set export filename (optional)
+3. **Click "Start Test"** to begin
+4. **Monitor Progress** in real-time with live output
+5. **View Results** in the summary cards
+6. **Export Results** as JSON for further analysis
+7. **Browse History** of previous tests in the right panel
+
+### Command Line Usage
 
 ```bash
 # Run a 60-second test (default)

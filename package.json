@@ -1,0 +1,72 @@
+{
+  "name": "netprobe-desktop",
+  "version": "1.0.0",
+  "description": "NetProbe - Internet Connection Reliability Tool Desktop App",
+  "main": "electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "electron": "electron .",
+    "electron-dev": "ELECTRON_IS_DEV=true electron .",
+    "build": "npm run build-python && npm run build-electron",
+    "build-python": "python -m pip install -r requirements.txt",
+    "build-electron": "electron-builder",
+    "dist": "npm run build && electron-builder --publish=never",
+    "dist-win": "npm run build && electron-builder --win --publish=never",
+    "dist-mac": "npm run build && electron-builder --mac --publish=never",
+    "pack": "electron-builder --dir",
+    "start": "npm run electron"
+  },
+  "build": {
+    "appId": "com.netprobe.desktop",
+    "productName": "NetProbe",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "web/**/*",
+      "netprobe.py",
+      "vpn_manager.py",
+      "router_analyzer.py",
+      "network_isolation_detector.py",
+      "requirements.txt",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "python-env",
+        "to": "python-env"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  }
+}

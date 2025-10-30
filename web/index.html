@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetProbe - Internet Connection Reliability Tool</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌐 NetProbe</h1>
+            <p>Internet Connection Reliability Tool</p>
+        </header>
+
+        <main>
+            <div class="test-panel">
+                <div class="test-config">
+                    <div class="simple-interface">
+                        <div class="big-start-button">
+                            <button id="start-test" class="btn btn-primary btn-big">
+                                <span class="btn-icon">🚀</span>
+                                Start Internet Test
+                            </button>
+                            <p class="test-description">Quick 30-second connection quality test</p>
+                        </div>
+
+                        <div class="quick-actions">
+                            <button id="stop-test" class="btn btn-secondary" disabled>Stop Test</button>
+                        </div>
+
+                        <div class="advanced-toggle">
+                            <button id="toggle-advanced" class="btn btn-link">
+                                <span id="toggle-icon">⚙️</span> Advanced Options
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="advanced-options" class="advanced-options" style="display: none;">
+                        <h3>Advanced Settings</h3>
+
+                        <div class="form-group">
+                            <label for="duration">Test Duration (seconds):</label>
+                            <input type="number" id="duration" value="30" min="10" max="300">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="location">Location:</label>
+                            <input type="text" id="location" placeholder="e.g., Home Office, Starbucks NYC">
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="detect-location"> Auto-detect location
+                            </label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="compare-vpn"> Compare VPN performance
+                            </label>
+                        </div>
+
+                        <div class="form-group checkbox-group">
+                            <label>
+                                <input type="checkbox" id="debug"> Debug mode
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="export-file">Export filename (optional):</label>
+                            <input type="text" id="export-file" placeholder="test-results.json">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="test-results">
+                    <h2>Test Results</h2>
+
+                    <div id="test-status" class="status-idle">
+                        <span class="status-icon">⏱️</span>
+                        <span class="status-text">Ready to test</span>
+                    </div>
+
+                    <div id="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div id="progress-fill"></div>
+                        </div>
+                        <div id="progress-text">Preparing test...</div>
+                    </div>
+
+                    <div class="output-toggle">
+                        <button id="toggle-output" class="btn btn-link" style="display: none;">
+                            <span id="output-toggle-icon">📋</span> Show Live Output
+                        </button>
+                    </div>
+
+                    <div id="live-output" class="output-container" style="display: none;"></div>
+
+                    <div id="results-summary" class="results-grid" style="display: none;">
+                        <div class="metric-card">
+                            <h3>Latency</h3>
+                            <div class="metric-value" id="latency-value">-</div>
+                            <div class="metric-unit">ms</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Packet Loss</h3>
+                            <div class="metric-value" id="packet-loss-value">-</div>
+                            <div class="metric-unit">%</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Jitter</h3>
+                            <div class="metric-value" id="jitter-value">-</div>
+                            <div class="metric-unit">ms</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Download Speed</h3>
+                            <div class="metric-value" id="download-value">-</div>
+                            <div class="metric-unit">Mbps</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Upload Speed</h3>
+                            <div class="metric-value" id="upload-value">-</div>
+                            <div class="metric-unit">Mbps</div>
+                        </div>
+                        <div class="metric-card">
+                            <h3>Quality Score</h3>
+                            <div class="metric-value" id="quality-score">-</div>
+                            <div class="metric-unit">%</div>
+                        </div>
+                    </div>
+
+                    <div id="results-actions" style="display: none;">
+                        <button id="export-results" class="btn btn-primary">Export Results</button>
+                        <button id="new-test" class="btn btn-secondary">New Test</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="history-panel">
+                <h2>Recent Tests</h2>
+                <div id="history-list" class="history-list">
+                    <p class="no-results">No previous test results found.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
