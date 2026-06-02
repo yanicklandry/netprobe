@@ -8,8 +8,8 @@
   - Observable: both TypedDicts can be instantiated and passed between `WiFiSampler`, `StatisticsCalculator`, and `Reporter` without runtime errors
   - _Requirements: 1.2, 2.2, 4.1_
 
-- [ ] 2. Build WiFi hardware sampler
-- [ ] 2.1 (P) Implement `WiFiSampler` class with platform guard and connection detection
+- [x] 2. Build WiFi hardware sampler
+- [x] 2.1 (P) Implement `WiFiSampler` class with platform guard and connection detection
   - Add `WiFiSampler.__init__(interval_seconds: int = 5)` storing interval and initializing empty sample list and stop event
   - Implement `_is_wifi_connected() -> bool` using `networksetup -getinfo Wi-Fi` subprocess call; return `False` if output lacks an IP address or if the subprocess call fails
   - Implement `start()`: check `platform.system() == "Darwin"` first (no-op if not macOS, requirement 1.6); then call `_is_wifi_connected()` (no-op if not WiFi, requirement 1.4); otherwise start background daemon thread

@@ -623,5 +623,106 @@ class TestWiFiTypedDicts:
         assert sample['snr_db'] == 25
 
 
+class TestWiFiSampler:
+    """Test WiFiSampler class (task 2.1) — start/stop/get_samples and platform/connection guards."""
+
+    def test_wifi_sampler_exists(self):
+        """WiFiSampler class can be imported from netprobe."""
+        from netprobe import WiFiSampler
+        assert WiFiSampler is not None
+
+    def test_wifi_sampler_init(self):
+        """WiFiSampler.__init__ stores interval and initializes empty samples and stop event."""
+        from netprobe import WiFiSampler
+        import threading
+        sampler = WiFiSampler(interval_seconds=3)
+        assert sampler.interval_seconds == 3
+        assert sampler.get_samples() == []
+        assert isinstance(sampler._stop_event, threading.Event)
+
+    def test_start_noop_on_non_macos(self):
+        """start() is a no-op on Linux — no thread is created."""
+        from netprobe import WiFiSampler
+        import threading
+        with patch('platform.system', return_value='Linux'):
+            sampler = WiFiSampler()
+            before = threading.active_count()
+            sampler.start()
+            after = threading.active_count()
+        assert after == before, "start() should not launch a thread on non-macOS"
+        assert sampler.get_samples() == []
+
+    def test_start_noop_when_not_wifi_connected(self):
+        """start() is a no-op when _is_wifi_connected() returns False."""
+        from netprobe import WiFiSampler
+        import threading
+        with patch('platform.system', return_value='Darwin'), \
+             patch.object(WiFiSampler, '_is_wifi_connected', return_value=False):
+            sampler = WiFiSampler()
+            before = threading.active_count()
+            sampler.start()
+            after = threading.active_count()
+        assert after == before, "start() should not launch a thread when not on WiFi"
+
+    def test_start_launches_thread_on_macos_wifi(self):
+        """start() launches exactly one background daemon thread on macOS WiFi."""
+        from netprobe import WiFiSampler
+        import threading
+        with patch('platform.system', return_value='Darwin'), \
+             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True):
+            sampler = WiFiSampler()
+            before = threading.active_count()
+            sampler.start()
+            after = threading.active_count()
+            # Clean up immediately
+            sampler.stop()
+        assert after == before + 1, "start() should launch exactly one thread on macOS WiFi"
+
+    def test_stop_after_start_returns_samples_list(self):
+        """stop() joins the thread; get_samples() returns a list without error."""
+        from netprobe import WiFiSampler
+        with patch('platform.system', return_value='Darwin'), \
+             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True):
+            sampler = WiFiSampler()
+            sampler.start()
+            sampler.stop()
+        result = sampler.get_samples()
+        assert isinstance(result, list)
+
+    def test_stop_safe_when_not_started(self):
+        """stop() is safe to call even if start() was never called (no crash)."""
+        from netprobe import WiFiSampler
+        sampler = WiFiSampler()
+        sampler.stop()  # Should not raise
+        assert sampler.get_samples() == []
+
+    def test_is_wifi_connected_false_when_no_ip(self):
+        """_is_wifi_connected() returns False when networksetup output has no IP address."""
+        from netprobe import WiFiSampler
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "IP address: \nSubnet mask: \nDefault Gateway: \n"
+        with patch('subprocess.run', return_value=mock_result):
+            sampler = WiFiSampler()
+            assert sampler._is_wifi_connected() is False
+
+    def test_is_wifi_connected_false_on_subprocess_failure(self):
+        """_is_wifi_connected() returns False when subprocess raises an exception."""
+        from netprobe import WiFiSampler
+        with patch('subprocess.run', side_effect=Exception("command not found")):
+            sampler = WiFiSampler()
+            assert sampler._is_wifi_connected() is False
+
+    def test_is_wifi_connected_true_when_ip_present(self):
+        """_is_wifi_connected() returns True when networksetup output has an IP address."""
+        from netprobe import WiFiSampler
+        mock_result = Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "IP address: 192.168.1.42\nSubnet mask: 255.255.255.0\n"
+        with patch('subprocess.run', return_value=mock_result):
+            sampler = WiFiSampler()
+            assert sampler._is_wifi_connected() is True
+
+
 if __name__ == '__main__':
     pytest.main([__file__])

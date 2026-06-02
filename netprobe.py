@@ -12,6 +12,8 @@ import socket
 import subprocess
 import sys
 import os
+import platform
+import re
 import threading
 import queue
 from datetime import datetime
@@ -606,6 +608,72 @@ class ConnectionTester:
         if self.debug:
             print("\\nTest completed!")
         return self.results
+
+
+class WiFiSampler:
+    """Background WiFi signal sampler using system_profiler on macOS.
+
+    Collects RSSI, noise floor, and SNR at a fixed interval in a daemon thread.
+    On non-macOS platforms or non-WiFi connections, all methods are safe no-ops.
+    """
+
+    def __init__(self, interval_seconds: int = 5) -> None:
+        self.interval_seconds = interval_seconds
+        self._samples: List[WiFiSample] = []
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def start(self) -> None:
+        """Start background sampling thread. No-op on non-macOS or non-WiFi."""
+        if platform.system() != "Darwin":
+            return
+        if not self._is_wifi_connected():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._sample_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """Signal thread to stop and join (2s timeout). Safe to call if not started."""
+        self._stop_event.set()
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=2)
+            if self._thread.is_alive():
+                print("⚠️  WiFiSampler: thread did not stop within 2 seconds", file=sys.stderr)
+
+    def get_samples(self) -> List[WiFiSample]:
+        """Return collected samples. Call only after stop()."""
+        return list(self._samples)
+
+    def _is_wifi_connected(self) -> bool:
+        """Return True if active interface has an IP address (indicating WiFi connectivity)."""
+        try:
+            result = subprocess.run(
+                ["networksetup", "-getinfo", "Wi-Fi"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            # Look for a non-empty IP address line
+            for line in result.stdout.splitlines():
+                if line.startswith("IP address:"):
+                    ip_part = line.split(":", 1)[1].strip()
+                    if ip_part:
+                        return True
+            return False
+        except Exception:
+            return False
+
+    def _parse_output(self, output: str) -> Optional[WiFiSample]:
+        """Parse system_profiler text output. Return None on parse failure (implemented in task 2.2)."""
+        # Stub: parsing logic will be implemented in task 2.2
+        return None
+
+    def _sample_loop(self) -> None:
+        """Thread target: loop until stop event set, sleeping interval_seconds between iterations."""
+        while not self._stop_event.is_set():
+            # subprocess call to system_profiler and sample collection implemented in task 2.2
+            self._stop_event.wait(timeout=self.interval_seconds)
 
 
 class StatisticsCalculator:
