@@ -1025,8 +1025,38 @@ class Reporter:
             status = "🔴 Poor"
         
         print(f"   Connection Status: {status}")
+
+        # WiFi Stability Score display (task 5.1)
+        wifi_stability = results.get('wifi_stability')
+        if wifi_stability is None:
+            print("   WiFi Stability Score: N/A")
+        else:
+            wifi_score = wifi_stability.get('wifi_stability_score')
+            wifi_type = wifi_stability.get('wifi_score_type', 'unavailable')
+            if wifi_score is None or wifi_type == 'unavailable':
+                print("   WiFi Stability Score: N/A")
+            else:
+                # Rating bands same as quality_score
+                if wifi_score >= 90:
+                    wifi_rating = "Excellent"
+                elif wifi_score >= 80:
+                    wifi_rating = "Good"
+                elif wifi_score >= 70:
+                    wifi_rating = "Fair"
+                else:
+                    wifi_rating = "Poor"
+
+                if wifi_type == 'hardware':
+                    avg_snr = wifi_stability.get('avg_snr_db')
+                    if avg_snr is None:
+                        print(f"   WiFi Stability Score: {wifi_score}/100 ({wifi_rating})")
+                    else:
+                        print(f"   WiFi Stability Score: {wifi_score}/100 ({wifi_rating}) | Avg SNR: {avg_snr:.1f} dB")
+                else:
+                    print(f"   Connection Stability Score (behavior only): {wifi_score}/100 ({wifi_rating})")
+
         print()
-    
+
     @staticmethod
     def export_json(results: Dict[str, Any], stats: Dict[str, Any], filename: str):
         """Export results to JSON file."""

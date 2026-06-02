@@ -54,8 +54,8 @@
   - _Requirements: 1.1, 1.3, 2.1_
   - _Boundary: ConnectionTester_
 
-- [ ] 5. Extend Reporter with wifi stability output and exports
-- [ ] 5.1 Display `wifi_stability_score` in terminal summary
+- [x] 5. Extend Reporter with wifi stability output and exports
+- [x] 5.1 Display `wifi_stability_score` in terminal summary
   - In `Reporter.print_summary()`, after the existing `quality_score` display block, read `results.get('wifi_stability')`
   - If `wifi_score_type == "unavailable"` or wifi_stability is absent: print `WiFi Stability Score: N/A`
   - If `wifi_score_type == "hardware"`: print `WiFi Stability Score: {score}/100 ({rating}) | Avg SNR: {snr:.1f} dB` using same rating band logic as quality_score (≥90 Excellent, ≥80 Good, ≥70 Fair, <70 Poor)

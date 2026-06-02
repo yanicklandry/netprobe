@@ -1078,5 +1078,115 @@ class TestWiFiSamplerIntegration:
         mock_stop.assert_called_once()
 
 
+class TestPrintSummaryWifiStability:
+    """Test Reporter.print_summary() displays wifi_stability_score (task 5.1)."""
+
+    def _base_results(self):
+        return {
+            'latency': [],
+            'dns_times': [],
+            'bandwidth': {'download_speed_mbps': 50.0},
+        }
+
+    def _base_stats(self):
+        return {
+            'quality_score': 85,
+            'latency_stats': {'avg_ms': 20.0},
+            'packet_loss_stats': {'avg_percent': 0.0},
+            'jitter_stats': {'avg_ms': 2.0},
+            'dns_stats': {'avg_ms': 15.0},
+        }
+
+    def test_hardware_score_displayed(self, capsys):
+        """Hardware-backed score shows label, score/100, rating, and avg SNR."""
+        results = self._base_results()
+        results['wifi_stability'] = {
+            'wifi_stability_score': 92,
+            'wifi_score_type': 'hardware',
+            'wifi_samples': [],
+            'avg_snr_db': 28.5,
+        }
+        Reporter.print_summary(results, self._base_stats())
+        captured = capsys.readouterr().out
+        assert 'WiFi Stability Score: 92/100' in captured
+        assert 'Excellent' in captured
+        assert 'Avg SNR: 28.5 dB' in captured
+
+    def test_behavior_only_score_displayed(self, capsys):
+        """Behavior-only score shows 'behavior only' label, score/100, and rating."""
+        results = self._base_results()
+        results['wifi_stability'] = {
+            'wifi_stability_score': 75,
+            'wifi_score_type': 'behavior-only',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        Reporter.print_summary(results, self._base_stats())
+        captured = capsys.readouterr().out
+        assert 'Connection Stability Score (behavior only): 75/100' in captured
+        assert 'Fair' in captured
+
+    def test_unavailable_score_shows_na(self, capsys):
+        """Unavailable score type prints N/A line."""
+        results = self._base_results()
+        results['wifi_stability'] = {
+            'wifi_stability_score': None,
+            'wifi_score_type': 'unavailable',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        Reporter.print_summary(results, self._base_stats())
+        captured = capsys.readouterr().out
+        assert 'WiFi Stability Score: N/A' in captured
+
+    def test_absent_wifi_stability_shows_na(self, capsys):
+        """Missing wifi_stability key prints N/A without crash."""
+        results = self._base_results()
+        Reporter.print_summary(results, self._base_stats())
+        captured = capsys.readouterr().out
+        assert 'WiFi Stability Score: N/A' in captured
+
+    def test_score_none_shows_na(self, capsys):
+        """score=None with hardware type prints N/A without crash."""
+        results = self._base_results()
+        results['wifi_stability'] = {
+            'wifi_stability_score': None,
+            'wifi_score_type': 'hardware',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        Reporter.print_summary(results, self._base_stats())
+        captured = capsys.readouterr().out
+        assert 'WiFi Stability Score: N/A' in captured
+
+    def test_hardware_score_with_none_snr(self, capsys):
+        """Hardware type with avg_snr_db=None prints score without crashing (no TypeError)."""
+        results = self._base_results()
+        results['wifi_stability'] = {
+            'wifi_stability_score': 85,
+            'wifi_score_type': 'hardware',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        Reporter.print_summary(results, self._base_stats())
+        captured = capsys.readouterr().out
+        assert 'WiFi Stability Score: 85/100' in captured
+        assert 'Avg SNR' not in captured
+
+    def test_rating_bands(self, capsys):
+        """Test all four rating bands: >=90 Excellent, >=80 Good, >=70 Fair, <70 Poor."""
+        for score, expected_rating in [(90, 'Excellent'), (80, 'Good'), (70, 'Fair'), (69, 'Poor')]:
+            results = self._base_results()
+            results['wifi_stability'] = {
+                'wifi_stability_score': score,
+                'wifi_score_type': 'behavior-only',
+                'wifi_samples': [],
+                'avg_snr_db': None,
+            }
+            Reporter.print_summary(results, self._base_stats())
+            captured = capsys.readouterr().out
+            assert expected_rating in captured, f"Expected '{expected_rating}' for score {score}"
+
+
 if __name__ == '__main__':
     pytest.main([__file__])
