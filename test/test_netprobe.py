@@ -724,5 +724,144 @@ class TestWiFiSampler:
             assert sampler._is_wifi_connected() is True
 
 
+class TestWiFiSamplerParseAndLoop:
+    """Tests for WiFiSampler._parse_output() and _sample_loop() (task 2.2)."""
+
+    def test_parse_output_valid(self):
+        """_parse_output() returns WiFiSample with correct rssi, noise, snr on valid input."""
+        from netprobe import WiFiSampler
+        sampler = WiFiSampler()
+        result = sampler._parse_output("Signal / Noise: -68 dBm / -97 dBm")
+        assert result is not None
+        assert result['rssi_dbm'] == -68
+        assert result['noise_dbm'] == -97
+        assert result['snr_db'] == 29  # -68 - (-97)
+        assert 'timestamp' in result
+
+    def test_parse_output_invalid(self):
+        """_parse_output() returns None on malformed input without raising."""
+        from netprobe import WiFiSampler
+        sampler = WiFiSampler()
+        result = sampler._parse_output("some random output with no signal info")
+        assert result is None
+
+    def test_parse_output_embedded_in_larger_text(self):
+        """_parse_output() finds Signal/Noise line inside larger system_profiler output."""
+        from netprobe import WiFiSampler
+        sampler = WiFiSampler()
+        text = (
+            "SPAirPortDataType:\n"
+            "    Current Network Information:\n"
+            "      PHY Mode: 802.11ac\n"
+            "      Signal / Noise: -55 dBm / -90 dBm\n"
+            "      Transmit Rate: 400\n"
+        )
+        result = sampler._parse_output(text)
+        assert result is not None
+        assert result['rssi_dbm'] == -55
+        assert result['noise_dbm'] == -90
+        assert result['snr_db'] == 35
+
+    def test_sample_loop_appends_samples(self):
+        """_sample_loop() appends a WiFiSample when system_profiler succeeds."""
+        from netprobe import WiFiSampler
+        import threading
+
+        mock_proc = Mock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Signal / Noise: -68 dBm / -97 dBm"
+
+        sampler = WiFiSampler(interval_seconds=0)
+
+        # Let the loop run one iteration then stop
+        call_count = [0]
+        original_wait = sampler._stop_event.wait
+
+        def stop_after_one(timeout=None):
+            call_count[0] += 1
+            if call_count[0] >= 1:
+                sampler._stop_event.set()
+            return sampler._stop_event.is_set()
+
+        sampler._stop_event.wait = stop_after_one
+
+        with patch('subprocess.run', return_value=mock_proc):
+            sampler._sample_loop()
+
+        samples = sampler.get_samples()
+        assert len(samples) >= 1
+        assert samples[0]['rssi_dbm'] == -68
+        assert samples[0]['noise_dbm'] == -97
+        assert samples[0]['snr_db'] == 29
+
+    def test_sample_loop_skips_on_subprocess_failure(self):
+        """_sample_loop() logs warning and continues when subprocess raises."""
+        from netprobe import WiFiSampler
+
+        sampler = WiFiSampler(interval_seconds=0)
+        call_count = [0]
+
+        def stop_after_one(timeout=None):
+            call_count[0] += 1
+            if call_count[0] >= 1:
+                sampler._stop_event.set()
+            return sampler._stop_event.is_set()
+
+        sampler._stop_event.wait = stop_after_one
+
+        with patch('subprocess.run', side_effect=Exception("timeout")):
+            sampler._sample_loop()  # must not raise
+
+        assert sampler.get_samples() == []
+
+    def test_sample_loop_skips_on_parse_failure(self):
+        """_sample_loop() skips sample and continues when output cannot be parsed."""
+        from netprobe import WiFiSampler
+
+        mock_proc = Mock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "no signal data here"
+
+        sampler = WiFiSampler(interval_seconds=0)
+        call_count = [0]
+
+        def stop_after_one(timeout=None):
+            call_count[0] += 1
+            if call_count[0] >= 1:
+                sampler._stop_event.set()
+            return sampler._stop_event.is_set()
+
+        sampler._stop_event.wait = stop_after_one
+
+        with patch('subprocess.run', return_value=mock_proc):
+            sampler._sample_loop()  # must not raise
+
+        assert sampler.get_samples() == []
+
+    def test_sample_loop_skips_on_nonzero_returncode(self):
+        """_sample_loop() logs warning, skips sample, and continues when subprocess returns non-zero exit code (req 1.5)."""
+        from netprobe import WiFiSampler
+
+        mock_proc = Mock()
+        mock_proc.returncode = 1
+        mock_proc.stdout = ""
+
+        sampler = WiFiSampler(interval_seconds=0)
+        call_count = [0]
+
+        def stop_after_one(timeout=None):
+            call_count[0] += 1
+            if call_count[0] >= 1:
+                sampler._stop_event.set()
+            return sampler._stop_event.is_set()
+
+        sampler._stop_event.wait = stop_after_one
+
+        with patch('subprocess.run', return_value=mock_proc):
+            sampler._sample_loop()  # must not raise
+
+        assert sampler.get_samples() == []
+
+
 if __name__ == '__main__':
     pytest.main([__file__])

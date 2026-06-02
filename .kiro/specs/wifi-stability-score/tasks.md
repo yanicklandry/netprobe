@@ -19,7 +19,7 @@
   - _Requirements: 1.1, 1.3, 1.4, 1.6_
   - _Boundary: WiFiSampler_
 
-- [ ] 2.2 (P) Implement `WiFiSampler` signal parsing and sample loop
+- [x] 2.2 (P) Implement `WiFiSampler` signal parsing and sample loop
   - Implement `_parse_output(output: str) -> Optional[WiFiSample]`: use regex `Signal / Noise: (-?\d+) dBm / (-?\d+) dBm` to extract RSSI and noise; compute `snr_db = rssi_dbm - noise_dbm`; return `None` on no match
   - Implement `_sample_loop()`: loop while stop event not set; call `subprocess.run(["system_profiler", "SPAirPortDataType"])` with 10s timeout; on success pass output to `_parse_output()`; if result is not None append `WiFiSample`; on failure or parse error log warning and continue; sleep `interval_seconds` between calls
   - Observable: given mocked `system_profiler` output `"Signal / Noise: -68 dBm / -97 dBm"`, `_parse_output()` returns `WiFiSample` with `rssi_dbm=-68`, `noise_dbm=-97`, `snr_db=29`; given malformed output, returns `None` without raising
@@ -115,3 +115,6 @@
   - If suite exceeds 1 second, identify the slow test and add missing mock
   - Observable: `./test.py` output shows all tests passing with total elapsed time < 1.0 seconds; no `PermissionError` or `subprocess.TimeoutExpired` from unmocked calls
   - _Requirements: 5.4_
+
+## Implementation Notes
+- Task 2.1/2.2: WiFiSampler thread tests use real 2s join timeouts — task 6.4 must mock threading.Thread or reduce timeout in tests to keep suite under 1s.
