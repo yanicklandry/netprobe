@@ -863,5 +863,92 @@ class TestWiFiSamplerParseAndLoop:
         assert sampler.get_samples() == []
 
 
+class TestWiFiStabilityScore:
+    """Tests for StatisticsCalculator.calculate_wifi_stability_score() — hardware path (task 3.1)."""
+
+    def _make_sample(self, snr_db: int) -> dict:
+        return {
+            'timestamp': 1000.0,
+            'rssi_dbm': -70 + snr_db,
+            'noise_dbm': -70,
+            'snr_db': snr_db,
+        }
+
+    def _stable_latency_stats(self):
+        """Latency stats with low CoV (std_dev=1, mean=20 → CoV=0.05)."""
+        return {'avg_ms': 20.0, 'std_dev_ms': 1.0}
+
+    def _stable_jitter_stats(self):
+        """Jitter stats with low std_dev (2ms)."""
+        return {'avg_ms': 3.0, 'std_dev_ms': 2.0}
+
+    def test_hardware_path_multiple_samples(self):
+        """3 samples with SNR ~26 dB and stable latency/jitter -> score in 85-100, type 'hardware', avg_snr_db ~26.0 (req 2.1, 2.2)."""
+        from netprobe import StatisticsCalculator
+
+        samples = [
+            self._make_sample(25),
+            self._make_sample(27),
+            self._make_sample(26),
+        ]
+        result = StatisticsCalculator.calculate_wifi_stability_score(
+            samples,
+            self._stable_latency_stats(),
+            self._stable_jitter_stats(),
+            {},
+        )
+
+        assert result['wifi_score_type'] == 'hardware'
+        assert isinstance(result['wifi_stability_score'], int)
+        assert 85 <= result['wifi_stability_score'] <= 100
+        assert result['avg_snr_db'] is not None
+        assert abs(result['avg_snr_db'] - 26.0) < 0.1
+        assert result['wifi_samples'] == samples
+
+    def test_hardware_single_sample_no_variance_penalty(self):
+        """Single sample with SNR=25 dB: no SNR variance penalty applied (req 2.4).
+        SNR=25 -> -10 (snr<30), stable latency/jitter -> score=90."""
+        from netprobe import StatisticsCalculator
+
+        sample = self._make_sample(25)
+        result = StatisticsCalculator.calculate_wifi_stability_score(
+            [sample],
+            self._stable_latency_stats(),
+            self._stable_jitter_stats(),
+            {},
+        )
+
+        assert result['wifi_score_type'] == 'hardware'
+        assert isinstance(result['wifi_stability_score'], int)
+        # SNR=25 dB -> -10 (snr<30); no variance penalty (single sample);
+        # stable latency CoV=0.05 (<0.2) and jitter std_dev=2ms (<5ms) -> 0 penalty -> 90
+        assert result['wifi_stability_score'] == 90
+
+    def test_independence_from_quality_score(self):
+        """calculate_wifi_stability_score() does not modify quality_score or shared state (req 2.5)."""
+        from netprobe import StatisticsCalculator
+
+        samples = [self._make_sample(30)]
+        latency_stats = {'avg_ms': 15.0, 'std_dev_ms': 1.0}
+        jitter_stats = {'avg_ms': 2.0, 'std_dev_ms': 1.0}
+
+        results_stub = {
+            'latency': [{'avg_latency_ms': 15.0, 'packet_loss_percent': 0.0, 'jitter_ms': 2.0}],
+            'dns_times': [],
+            'bandwidth': [],
+            'local_router': [],
+        }
+        stats = StatisticsCalculator.calculate_statistics(results_stub)
+        quality_before = stats['quality_score']
+
+        # Run wifi stability score -- must not alter shared state
+        StatisticsCalculator.calculate_wifi_stability_score(
+            samples, latency_stats, jitter_stats, {}
+        )
+
+        stats_after = StatisticsCalculator.calculate_statistics(results_stub)
+        assert stats_after['quality_score'] == quality_before
+
+
 if __name__ == '__main__':
     pytest.main([__file__])

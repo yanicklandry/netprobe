@@ -26,8 +26,8 @@
   - _Requirements: 1.2, 1.5_
   - _Boundary: WiFiSampler_
 
-- [ ] 3. Build WiFi stability score calculator
-- [ ] 3.1 (P) Implement hardware-backed score path
+- [x] 3. Build WiFi stability score calculator
+- [x] 3.1 (P) Implement hardware-backed score path
   - Add static method `calculate_wifi_stability_score(samples, latency_stats, jitter_stats, packet_loss_stats) -> WiFiStabilityResult` to `StatisticsCalculator`
   - Hardware path (len(samples) >= 1): start from 100; apply SNR level penalties (-40 if avg SNR < 10 dB, -20 if < 20 dB, -10 if < 30 dB); apply SNR variance penalty only when len(samples) >= 2 (-20 if std_dev > 10, -10 if > 5, -5 if > 2); apply latency CoV penalty (CoV = std_dev/mean, guard for mean=0; -15 if CoV > 0.5, -7 if > 0.2); apply jitter std_dev penalty (-10 if > 10ms, -5 if > 5ms); clamp to [0, 100]
   - Compute `avg_snr_db` as mean of all snr_db values in samples

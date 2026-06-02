@@ -665,14 +665,40 @@ class WiFiSampler:
             return False
 
     def _parse_output(self, output: str) -> Optional[WiFiSample]:
-        """Parse system_profiler text output. Return None on parse failure (implemented in task 2.2)."""
-        # Stub: parsing logic will be implemented in task 2.2
-        return None
+        """Parse system_profiler text output. Return None on parse failure."""
+        match = re.search(r'Signal / Noise: (-?\d+) dBm / (-?\d+) dBm', output)
+        if not match:
+            return None
+        rssi_dbm = int(match.group(1))
+        noise_dbm = int(match.group(2))
+        snr_db = rssi_dbm - noise_dbm
+        return WiFiSample(
+            timestamp=time.time(),
+            rssi_dbm=rssi_dbm,
+            noise_dbm=noise_dbm,
+            snr_db=snr_db,
+        )
 
     def _sample_loop(self) -> None:
-        """Thread target: loop until stop event set, sleeping interval_seconds between iterations."""
+        """Thread target: loop until stop event set, calling system_profiler each interval."""
         while not self._stop_event.is_set():
-            # subprocess call to system_profiler and sample collection implemented in task 2.2
+            try:
+                result = subprocess.run(
+                    ["system_profiler", "SPAirPortDataType"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode == 0:
+                    sample = self._parse_output(result.stdout)
+                    if sample is not None:
+                        self._samples.append(sample)
+                    else:
+                        print("⚠️  WiFiSampler: could not parse system_profiler output", file=sys.stderr)
+                else:
+                    print(f"⚠️  WiFiSampler: system_profiler exited with code {result.returncode}", file=sys.stderr)
+            except Exception as exc:
+                print(f"⚠️  WiFiSampler: error calling system_profiler: {exc}", file=sys.stderr)
             self._stop_event.wait(timeout=self.interval_seconds)
 
 
@@ -795,6 +821,75 @@ class StatisticsCalculator:
                 score -= 5
         
         return max(0, min(100, score))
+
+    @staticmethod
+    def calculate_wifi_stability_score(
+        samples: List[Any],
+        latency_stats: Dict[str, Any],
+        jitter_stats: Dict[str, Any],
+        packet_loss_stats: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Compute wifi_stability_score from WiFi hardware samples and behavior stats.
+
+        Hardware path (len(samples) >= 1): penalises low/variable SNR plus
+        latency CoV and jitter std_dev.  Returns WiFiStabilityResult-compatible dict.
+        """
+        if len(samples) >= 1:
+            # --- hardware path ---
+            score = 100
+            snr_values = [s['snr_db'] for s in samples]
+            avg_snr = statistics.mean(snr_values)
+
+            # SNR level penalty (mutually exclusive tiers)
+            if avg_snr < 10:
+                score -= 40
+            elif avg_snr < 20:
+                score -= 20
+            elif avg_snr < 30:
+                score -= 10
+
+            # SNR variance penalty (only when >= 2 samples)
+            if len(samples) >= 2:
+                snr_std = statistics.stdev(snr_values)
+                if snr_std > 10:
+                    score -= 20
+                elif snr_std > 5:
+                    score -= 10
+                elif snr_std > 2:
+                    score -= 5
+
+            # Latency CoV penalty
+            lat_mean = latency_stats.get('avg_ms', 0) or 0
+            lat_std = latency_stats.get('std_dev_ms', 0) or 0
+            lat_cov = (lat_std / lat_mean) if lat_mean != 0 else 0
+            if lat_cov > 0.5:
+                score -= 15
+            elif lat_cov > 0.2:
+                score -= 7
+
+            # Jitter std_dev penalty
+            jitter_std = jitter_stats.get('std_dev_ms', 0) or 0
+            if jitter_std > 10:
+                score -= 10
+            elif jitter_std > 5:
+                score -= 5
+
+            score = max(0, min(100, score))
+
+            return {
+                'wifi_stability_score': score,
+                'wifi_score_type': 'hardware',
+                'wifi_samples': list(samples),
+                'avg_snr_db': avg_snr,
+            }
+
+        # behavior-only and unavailable paths are handled in task 3.2
+        return {
+            'wifi_stability_score': None,
+            'wifi_score_type': 'unavailable',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
 
 
 class Reporter:
