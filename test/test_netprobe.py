@@ -372,7 +372,10 @@ class TestIntegration:
         tester = ConnectionTester(duration=1)
         
         # Mock the ping function to avoid permission issues
-        with patch.object(tester, 'test_latency_and_packet_loss') as mock_ping, \
+        mock_sampler = Mock()
+        mock_sampler.get_samples.return_value = []
+        with patch('netprobe.WiFiSampler', return_value=mock_sampler), \
+             patch.object(tester, 'test_latency_and_packet_loss') as mock_ping, \
              patch.object(tester, 'test_dns_resolution') as mock_dns, \
              patch.object(tester, 'test_bandwidth') as mock_bandwidth, \
              patch.object(tester, 'test_local_router') as mock_router:
@@ -669,8 +672,10 @@ class TestWiFiSampler:
         """start() launches exactly one background daemon thread on macOS WiFi."""
         from netprobe import WiFiSampler
         import threading
+        mock_proc = Mock(returncode=0, stdout="Signal / Noise: -70 dBm / -97 dBm")
         with patch('platform.system', return_value='Darwin'), \
-             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True):
+             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True), \
+             patch('subprocess.run', return_value=mock_proc):
             sampler = WiFiSampler()
             before = threading.active_count()
             sampler.start()
@@ -682,8 +687,10 @@ class TestWiFiSampler:
     def test_stop_after_start_returns_samples_list(self):
         """stop() joins the thread; get_samples() returns a list without error."""
         from netprobe import WiFiSampler
+        mock_proc = Mock(returncode=0, stdout="Signal / Noise: -70 dBm / -97 dBm")
         with patch('platform.system', return_value='Darwin'), \
-             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True):
+             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True), \
+             patch('subprocess.run', return_value=mock_proc):
             sampler = WiFiSampler()
             sampler.start()
             sampler.stop()

@@ -109,7 +109,7 @@
   - _Requirements: 5.4, 4.1, 4.2, 4.3_
   - _Boundary: ConnectionTester, Reporter_
 
-- [ ] 6.4 Verify full test suite timing and mock hygiene
+- [x] 6.4 Verify full test suite timing and mock hygiene
   - Run the complete test suite (`./test.py`) and confirm it completes in under 1 second
   - Confirm no test makes a real network call, DNS call, subprocess call to `system_profiler`, or call to `networksetup` (inspect mock patch decorators on all new tests)
   - If suite exceeds 1 second, identify the slow test and add missing mock
