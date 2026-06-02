@@ -43,8 +43,8 @@
   - _Requirements: 2.3, 2.4_
   - _Boundary: StatisticsCalculator_
 
-- [ ] 4. Wire sampler into test run
-- [ ] 4.1 Integrate `WiFiSampler` into `ConnectionTester.run_extended_test()`
+- [x] 4. Wire sampler into test run
+- [x] 4.1 Integrate `WiFiSampler` into `ConnectionTester.run_extended_test()`
   - Instantiate `WiFiSampler(interval_seconds=5)` before the test loop begins; call `sampler.start()`
   - After the test loop completes (before `calculate_statistics()`), call `sampler.stop()` and store the result of `sampler.get_samples()` in `self.results['wifi_samples']`
   - After `StatisticsCalculator.calculate_statistics()` runs, call `StatisticsCalculator.calculate_wifi_stability_score()` with the wifi_samples and the returned latency/jitter/packet_loss stats; store the resulting `WiFiStabilityResult` in `self.results['wifi_stability']`

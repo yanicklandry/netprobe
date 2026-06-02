@@ -515,14 +515,14 @@ class ConnectionTester:
         if self.debug:
             print(f"Starting {self.duration}-second connection reliability test...")
             print("=" * 50)
-        
+
         self.results['start_time'] = datetime.now().isoformat()
         start_time = time.time()
-        
+
         # Calculate test intervals and total iterations
         interval = max(5, self.duration // 10)  # Test every 5 seconds or 10 times total
         estimated_iterations = max(1, int(self.duration / interval))
-        
+
         if not self.debug:
             # Create progress bar for normal mode
             pbar = tqdm(
@@ -532,83 +532,101 @@ class ConnectionTester:
                 ncols=70,
                 leave=False
             )
-        
+
+        # Start WiFi sampler before the test loop
+        sampler = WiFiSampler(interval_seconds=5)
+        sampler.start()
+
         test_count = 0
-        
-        while time.time() - start_time < self.duration:
-            test_count += 1
-            
-            if self.debug:
-                print(f"\\nTest iteration {test_count}...")
-            
-            # Test latency and packet loss for each endpoint
-            # Test local router first
-            if self.local_gateway and test_count == 1:  # Only test once
-                router_result = self.test_local_router(count=3)
-                if 'avg_latency_ms' in router_result:
-                    self.results['local_router'].append({
+
+        try:
+            while time.time() - start_time < self.duration:
+                test_count += 1
+
+                if self.debug:
+                    print(f"\nTest iteration {test_count}...")
+
+                # Test latency and packet loss for each endpoint
+                # Test local router first
+                if self.local_gateway and test_count == 1:  # Only test once
+                    router_result = self.test_local_router(count=3)
+                    if 'avg_latency_ms' in router_result:
+                        self.results['local_router'].append({
+                            'timestamp': datetime.now().isoformat(),
+                            'gateway': self.local_gateway,
+                            **router_result
+                        })
+
+                for endpoint in self.endpoints:
+                    result = self.test_latency_and_packet_loss(endpoint, count=5)
+
+                    if 'avg_latency_ms' in result and result['avg_latency_ms'] is not None:
+                        self.results['latency'].append({
+                            'timestamp': datetime.now().isoformat(),
+                            'endpoint': endpoint,
+                            **result
+                        })
+
+                # Test DNS resolution
+                dns_result = self.test_dns_resolution()
+                if 'resolution_time_ms' in dns_result:
+                    self.results['dns_times'].append({
                         'timestamp': datetime.now().isoformat(),
-                        'gateway': self.local_gateway,
-                        **router_result
+                        **dns_result
                     })
-            
-            for endpoint in self.endpoints:
-                result = self.test_latency_and_packet_loss(endpoint, count=5)
-                
-                if 'avg_latency_ms' in result and result['avg_latency_ms'] is not None:
-                    self.results['latency'].append({
-                        'timestamp': datetime.now().isoformat(),
-                        'endpoint': endpoint,
-                        **result
-                    })
-            
-            # Test DNS resolution
-            dns_result = self.test_dns_resolution()
-            if 'resolution_time_ms' in dns_result:
-                self.results['dns_times'].append({
-                    'timestamp': datetime.now().isoformat(),
-                    **dns_result
-                })
-            
-            # Update progress bar
-            if not self.debug:
+
+                # Update progress bar
+                if not self.debug:
+                    elapsed = time.time() - start_time
+                    progress = min(100, (elapsed / self.duration) * 100)
+                    pbar.update(progress - pbar.n)  # Update by difference
+
+                # Sleep until next interval
                 elapsed = time.time() - start_time
-                progress = min(100, (elapsed / self.duration) * 100)
-                pbar.update(progress - pbar.n)  # Update by difference
-            
-            # Sleep until next interval
-            elapsed = time.time() - start_time
-            next_test_time = test_count * interval
-            if elapsed < next_test_time and elapsed < self.duration:
-                sleep_time = min(next_test_time - elapsed, self.duration - elapsed)
-                if sleep_time > 0:
-                    if self.debug:
-                        print(f"Waiting {sleep_time:.1f} seconds until next test...")
-                    time.sleep(sleep_time)
-        
+                next_test_time = test_count * interval
+                if elapsed < next_test_time and elapsed < self.duration:
+                    sleep_time = min(next_test_time - elapsed, self.duration - elapsed)
+                    if sleep_time > 0:
+                        if self.debug:
+                            print(f"Waiting {sleep_time:.1f} seconds until next test...")
+                        time.sleep(sleep_time)
+        finally:
+            # Stop sampler and collect samples — always runs even if loop raises
+            sampler.stop()
+            wifi_samples = sampler.get_samples()
+            self.results['wifi_samples'] = wifi_samples
+
         # Update progress bar to show bandwidth test
         if not self.debug:
             pbar.set_description("Running bandwidth test")
             pbar.update(95 - pbar.n)
-        
+
         # Run bandwidth test once at the end
         if self.debug:
-            print("\\nRunning bandwidth test...")
+            print("\nRunning bandwidth test...")
         bandwidth_result = self.test_bandwidth()
         self.results['bandwidth'] = bandwidth_result
-        
+
         # Complete progress bar
         if not self.debug:
             pbar.update(100 - pbar.n)
             pbar.set_description("Test completed")
             pbar.close()
-        
-        self.results['end_time'] = datetime.now().isoformat()
-        
-        if self.debug:
-            print("\\nTest completed!")
-        return self.results
 
+        self.results['end_time'] = datetime.now().isoformat()
+
+        # Calculate statistics and derive WiFi stability score
+        stats = StatisticsCalculator.calculate_statistics(self.results)
+        self.results['wifi_stability'] = StatisticsCalculator.calculate_wifi_stability_score(
+            wifi_samples,
+            stats.get('latency_stats', {}),
+            stats.get('jitter_stats', {}),
+            stats.get('packet_loss_stats', {}),
+        )
+
+        if self.debug:
+            print("\nTest completed!")
+        return self.results
 
 class WiFiSampler:
     """Background WiFi signal sampler using system_profiler on macOS.
