@@ -65,14 +65,14 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
   - _Boundary: Reporter_
 
-- [ ] 5.2 (P) Add wifi fields to JSON export
+- [x] 5.2 (P) Add wifi fields to JSON export
   - In `Reporter.export_json()`, merge four fields from `results.get('wifi_stability', {})` into the JSON output dict: `wifi_stability_score` (int or null), `wifi_score_type` (string), `wifi_samples` (list, default `[]`), `avg_snr_db` (float or null)
   - When wifi_stability is absent from results, write all four fields with their null/empty defaults
   - Observable: exported JSON file contains all four wifi keys; `wifi_samples` is a JSON array (empty or with sample objects each having `timestamp`, `rssi_dbm`, `noise_dbm`, `snr_db`)
   - _Requirements: 4.1, 4.3_
   - _Boundary: Reporter_
 
-- [ ] 5.3 (P) Add wifi data to CSV export
+- [x] 5.3 (P) Add wifi data to CSV export
   - In `Reporter.export_csv()`, add `wifi_stability_score` as a column in the summary row header and value
   - After the existing latency sample rows, write a WiFi samples section with header `wifi_timestamp,rssi_dbm,noise_dbm,snr_db` followed by one row per entry in `wifi_samples`; write no rows (but still write the header) when `wifi_samples` is empty
   - Observable: exported CSV file includes `wifi_stability_score` in the summary header; CSV contains a WiFi samples section (even if empty) with four columns; sample rows match the `WiFiSample` typed structure

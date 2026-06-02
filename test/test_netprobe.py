@@ -355,10 +355,11 @@ class TestReporter:
             reader = csv.reader(f)
             rows = list(reader)
         
-        assert len(rows) == 3  # Header + 2 data rows
-        assert rows[0] == ['timestamp', 'endpoint', 'latency_ms', 'packet_loss_percent', 'jitter_ms']
+        assert len(rows) == 4  # Header + 2 data rows + wifi section header
+        assert rows[0] == ['timestamp', 'endpoint', 'latency_ms', 'packet_loss_percent', 'jitter_ms', 'wifi_stability_score']
         assert rows[1][1] == '8.8.8.8'
         assert rows[2][1] == '1.1.1.1'
+        assert rows[3] == ['wifi_timestamp', 'rssi_dbm', 'noise_dbm', 'snr_db']
 
 
 class TestIntegration:
@@ -1186,6 +1187,142 @@ class TestPrintSummaryWifiStability:
             Reporter.print_summary(results, self._base_stats())
             captured = capsys.readouterr().out
             assert expected_rating in captured, f"Expected '{expected_rating}' for score {score}"
+
+
+class TestReporterWifiExport:
+    """Tests for wifi fields in Reporter.export_json() (5.2) and Reporter.export_csv() (5.3)."""
+
+    def _wifi_stability(self):
+        return {
+            'wifi_stability_score': 88,
+            'wifi_score_type': 'hardware',
+            'wifi_samples': [
+                {'timestamp': 1000.0, 'rssi_dbm': -65, 'noise_dbm': -92, 'snr_db': 27},
+                {'timestamp': 1000.5, 'rssi_dbm': -67, 'noise_dbm': -94, 'snr_db': 27},
+            ],
+            'avg_snr_db': 27.0,
+        }
+
+    def _base_results(self):
+        return {
+            'latency': [
+                {'timestamp': '2025-01-01T10:00:00', 'endpoint': '8.8.8.8',
+                 'avg_latency_ms': 20.0, 'packet_loss_percent': 0.0, 'jitter_ms': 2.0},
+            ],
+        }
+
+    # --- Task 5.2: JSON export ---
+
+    def test_json_export_includes_wifi_fields(self, tmp_path):
+        """JSON export contains all four wifi keys when wifi_stability is present."""
+        results = self._base_results()
+        results['wifi_stability'] = self._wifi_stability()
+        filename = str(tmp_path / 'out.json')
+
+        Reporter.export_json(results, {}, filename)
+
+        with open(filename) as f:
+            data = json.load(f)
+
+        assert 'wifi_stability_score' in data, "wifi_stability_score missing from JSON"
+        assert 'wifi_score_type' in data, "wifi_score_type missing from JSON"
+        assert 'wifi_samples' in data, "wifi_samples missing from JSON"
+        assert 'avg_snr_db' in data, "avg_snr_db missing from JSON"
+
+        assert data['wifi_stability_score'] == 88
+        assert data['wifi_score_type'] == 'hardware'
+        assert isinstance(data['wifi_samples'], list)
+        assert len(data['wifi_samples']) == 2
+        assert data['avg_snr_db'] == 27.0
+
+    def test_json_export_absent_wifi_stability_writes_defaults(self, tmp_path):
+        """JSON export writes null/empty defaults when wifi_stability is absent."""
+        results = self._base_results()
+        filename = str(tmp_path / 'out.json')
+
+        Reporter.export_json(results, {}, filename)
+
+        with open(filename) as f:
+            data = json.load(f)
+
+        assert 'wifi_stability_score' in data
+        assert 'wifi_score_type' in data
+        assert 'wifi_samples' in data
+        assert 'avg_snr_db' in data
+
+        assert data['wifi_stability_score'] is None
+        assert data['wifi_samples'] == []
+        assert data['avg_snr_db'] is None
+
+    # --- Task 5.3: CSV export ---
+
+    def test_csv_export_includes_wifi_score(self, tmp_path):
+        """CSV summary header includes wifi_stability_score column with the correct value."""
+        results = self._base_results()
+        results['wifi_stability'] = self._wifi_stability()
+        filename = str(tmp_path / 'out.csv')
+
+        Reporter.export_csv(results, filename)
+
+        with open(filename, newline='') as f:
+            reader = csv.reader(f)
+            rows = list(reader)
+
+        # First row is the summary header
+        assert 'wifi_stability_score' in rows[0], f"wifi_stability_score not in header: {rows[0]}"
+        score_idx = rows[0].index('wifi_stability_score')
+        assert rows[1][score_idx] == '88', f"Expected '88' got {rows[1][score_idx]}"
+
+    def test_csv_export_includes_wifi_sample_rows(self, tmp_path):
+        """CSV contains wifi samples section with correct four-column header and data rows."""
+        results = self._base_results()
+        results['wifi_stability'] = self._wifi_stability()
+        filename = str(tmp_path / 'out.csv')
+
+        Reporter.export_csv(results, filename)
+
+        with open(filename, newline='') as f:
+            content = f.read()
+
+        assert 'wifi_timestamp,rssi_dbm,noise_dbm,snr_db' in content, \
+            "WiFi samples section header not found in CSV"
+
+        # Check the actual data rows exist (two samples)
+        assert '-65' in content
+        assert '-92' in content
+        assert '27' in content
+
+    def test_csv_export_wifi_section_present_when_empty(self, tmp_path):
+        """WiFi samples section header is written even when wifi_samples is empty."""
+        results = self._base_results()
+        results['wifi_stability'] = {
+            'wifi_stability_score': None,
+            'wifi_score_type': 'unavailable',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        filename = str(tmp_path / 'out.csv')
+
+        Reporter.export_csv(results, filename)
+
+        with open(filename, newline='') as f:
+            content = f.read()
+
+        assert 'wifi_timestamp,rssi_dbm,noise_dbm,snr_db' in content, \
+            "WiFi samples header must be written even when wifi_samples is empty"
+
+    def test_csv_export_absent_wifi_still_writes_header(self, tmp_path):
+        """WiFi samples section header written even when wifi_stability key absent entirely."""
+        results = self._base_results()
+        filename = str(tmp_path / 'out.csv')
+
+        Reporter.export_csv(results, filename)
+
+        with open(filename, newline='') as f:
+            content = f.read()
+
+        assert 'wifi_timestamp,rssi_dbm,noise_dbm,snr_db' in content, \
+            "WiFi samples header must be written even when wifi_stability is absent"
 
 
 if __name__ == '__main__':

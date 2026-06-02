@@ -1060,10 +1060,15 @@ class Reporter:
     @staticmethod
     def export_json(results: Dict[str, Any], stats: Dict[str, Any], filename: str):
         """Export results to JSON file."""
+        wifi = results.get('wifi_stability', {})
         export_data = {
             'test_results': results,
             'statistics': stats,
-            'export_time': datetime.now().isoformat()
+            'export_time': datetime.now().isoformat(),
+            'wifi_stability_score': wifi.get('wifi_stability_score', None),
+            'wifi_score_type': wifi.get('wifi_score_type', None),
+            'wifi_samples': wifi.get('wifi_samples', []),
+            'avg_snr_db': wifi.get('avg_snr_db', None),
         }
         
         with open(filename, 'w') as f:
@@ -1074,9 +1079,13 @@ class Reporter:
     @staticmethod
     def export_csv(results: Dict[str, Any], filename: str):
         """Export latency results to CSV file."""
+        wifi = results.get('wifi_stability', {})
+        wifi_score = wifi.get('wifi_stability_score', None)
+        wifi_samples = wifi.get('wifi_samples', [])
+
         with open(filename, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['timestamp', 'endpoint', 'latency_ms', 'packet_loss_percent', 'jitter_ms'])
+            writer.writerow(['timestamp', 'endpoint', 'latency_ms', 'packet_loss_percent', 'jitter_ms', 'wifi_stability_score'])
             
             for result in results['latency']:
                 writer.writerow([
@@ -1084,7 +1093,18 @@ class Reporter:
                     result.get('endpoint', ''),
                     result.get('avg_latency_ms', ''),
                     result.get('packet_loss_percent', ''),
-                    result.get('jitter_ms', '')
+                    result.get('jitter_ms', ''),
+                    wifi_score if wifi_score is not None else '',
+                ])
+
+            # WiFi samples section
+            writer.writerow(['wifi_timestamp', 'rssi_dbm', 'noise_dbm', 'snr_db'])
+            for sample in wifi_samples:
+                writer.writerow([
+                    sample.get('timestamp', ''),
+                    sample.get('rssi_dbm', ''),
+                    sample.get('noise_dbm', ''),
+                    sample.get('snr_db', ''),
                 ])
         
         print(f"Latency data exported to {filename}")
