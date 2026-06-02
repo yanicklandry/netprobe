@@ -15,7 +15,7 @@ import os
 import threading
 import queue
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TypedDict
 import click
 import requests
 from pythonping import ping
@@ -24,6 +24,22 @@ import dns.exception
 from tqdm import tqdm
 import geocoder
 from vpn_manager import VPNManager
+
+
+class WiFiSample(TypedDict):
+    """A single WiFi signal sample collected during a test run."""
+    timestamp: float    # Unix epoch seconds
+    rssi_dbm: int       # Signal level in dBm (typically -30 to -90)
+    noise_dbm: int      # Noise floor in dBm (typically -90 to -100)
+    snr_db: int         # Signal-to-noise ratio: rssi_dbm - noise_dbm
+
+
+class WiFiStabilityResult(TypedDict):
+    """Result of WiFi stability score calculation."""
+    wifi_stability_score: Optional[int]  # 0-100, or None when unavailable
+    wifi_score_type: str                 # "hardware" | "behavior-only" | "unavailable"
+    wifi_samples: List[WiFiSample]       # Raw time-series samples
+    avg_snr_db: Optional[float]          # Mean SNR across all samples; None if no hardware samples
 
 
 class LocationManager:

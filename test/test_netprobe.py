@@ -545,5 +545,83 @@ class TestIntegration:
             Reporter.print_summary(results_with_none_bandwidth, stats_with_none)
 
 
+class TestWiFiTypedDicts:
+    """Test WiFiSample and WiFiStabilityResult TypedDict definitions (task 1.1)."""
+
+    def test_wifi_sample_can_be_instantiated(self):
+        """WiFiSample TypedDict can be instantiated with required fields."""
+        from netprobe import WiFiSample
+        import time as _time
+        sample: WiFiSample = {
+            'timestamp': _time.time(),
+            'rssi_dbm': -68,
+            'noise_dbm': -97,
+            'snr_db': 29,
+        }
+        assert sample['rssi_dbm'] == -68
+        assert sample['noise_dbm'] == -97
+        assert sample['snr_db'] == 29
+        assert isinstance(sample['timestamp'], float)
+
+    def test_wifi_stability_result_hardware_type(self):
+        """WiFiStabilityResult TypedDict can be instantiated with hardware score type."""
+        from netprobe import WiFiSample, WiFiStabilityResult
+        import time as _time
+        sample: WiFiSample = {
+            'timestamp': _time.time(),
+            'rssi_dbm': -65,
+            'noise_dbm': -92,
+            'snr_db': 27,
+        }
+        result: WiFiStabilityResult = {
+            'wifi_stability_score': 90,
+            'wifi_score_type': 'hardware',
+            'wifi_samples': [sample],
+            'avg_snr_db': 27.0,
+        }
+        assert result['wifi_stability_score'] == 90
+        assert result['wifi_score_type'] == 'hardware'
+        assert len(result['wifi_samples']) == 1
+        assert result['avg_snr_db'] == 27.0
+
+    def test_wifi_stability_result_behavior_only_type(self):
+        """WiFiStabilityResult TypedDict works with behavior-only score type."""
+        from netprobe import WiFiStabilityResult
+        result: WiFiStabilityResult = {
+            'wifi_stability_score': 72,
+            'wifi_score_type': 'behavior-only',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        assert result['wifi_score_type'] == 'behavior-only'
+        assert result['avg_snr_db'] is None
+        assert result['wifi_samples'] == []
+
+    def test_wifi_stability_result_unavailable_type(self):
+        """WiFiStabilityResult TypedDict works with unavailable score (None score)."""
+        from netprobe import WiFiStabilityResult
+        result: WiFiStabilityResult = {
+            'wifi_stability_score': None,
+            'wifi_score_type': 'unavailable',
+            'wifi_samples': [],
+            'avg_snr_db': None,
+        }
+        assert result['wifi_stability_score'] is None
+        assert result['wifi_score_type'] == 'unavailable'
+
+    def test_wifi_sample_snr_invariant(self):
+        """WiFiSample snr_db should equal rssi_dbm minus noise_dbm."""
+        from netprobe import WiFiSample
+        import time as _time
+        rssi, noise = -70, -95
+        sample: WiFiSample = {
+            'timestamp': _time.time(),
+            'rssi_dbm': rssi,
+            'noise_dbm': noise,
+            'snr_db': rssi - noise,
+        }
+        assert sample['snr_db'] == 25
+
+
 if __name__ == '__main__':
     pytest.main([__file__])
