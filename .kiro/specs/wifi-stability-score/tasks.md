@@ -79,8 +79,8 @@
   - _Requirements: 4.2_
   - _Boundary: Reporter_
 
-- [ ] 6. Unit and integration tests
-- [ ] 6.1 (P) Implement `TestWiFiSampler` unit tests
+- [x] 6. Unit and integration tests
+- [x] 6.1 (P) Implement `TestWiFiSampler` unit tests
   - `test_parse_output_valid`: mock `system_profiler` text with `"Signal / Noise: -68 dBm / -97 dBm"`; assert `rssi_dbm=-68`, `noise_dbm=-97`, `snr_db=29`
   - `test_parse_output_invalid`: pass `"no signal data here"`; assert return is `None`, no exception raised
   - `test_is_wifi_connected_false_on_non_wifi`: mock `networksetup` output without IP address; assert `_is_wifi_connected()` returns `False`
@@ -90,7 +90,7 @@
   - _Requirements: 5.1, 5.2, 1.4, 1.5, 1.6_
   - _Boundary: WiFiSampler_
 
-- [ ] 6.2 (P) Implement `TestWiFiStabilityScore` unit tests
+- [x] 6.2 (P) Implement `TestWiFiStabilityScore` unit tests
   - `test_hardware_path_multiple_samples`: pass 3 `WiFiSample` dicts with SNR ~26 dB and stable latency/jitter stats; assert score is int in [0, 100] and `wifi_score_type == "hardware"`
   - `test_hardware_single_sample_no_variance_penalty`: pass 1 sample; assert score is higher than the multi-sample score with high variance (variance penalty absent)
   - `test_behavior_only_path`: pass empty samples list with populated latency/jitter/packet_loss stats; assert `wifi_score_type == "behavior-only"`, score is int

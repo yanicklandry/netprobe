@@ -690,6 +690,21 @@ class TestWiFiSampler:
         result = sampler.get_samples()
         assert isinstance(result, list)
 
+    def test_stop_after_start_returns_samples(self):
+        """mock subprocess.run to return valid signal output; start() then stop(); get_samples() returns list (task 6.1)."""
+        from netprobe import WiFiSampler
+        mock_proc = Mock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "Signal / Noise: -68 dBm / -97 dBm"
+        with patch('platform.system', return_value='Darwin'), \
+             patch.object(WiFiSampler, '_is_wifi_connected', return_value=True), \
+             patch('subprocess.run', return_value=mock_proc):
+            sampler = WiFiSampler()
+            sampler.start()
+            sampler.stop()
+        result = sampler.get_samples()
+        assert isinstance(result, list)
+
     def test_stop_safe_when_not_started(self):
         """stop() is safe to call even if start() was never called (no crash)."""
         from netprobe import WiFiSampler
