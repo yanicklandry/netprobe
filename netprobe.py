@@ -712,33 +712,81 @@ class WiFiSampler:
             pass
         return None
 
+    # Sentinel returned when WiFi is connected but the SSID is hidden by macOS privacy.
+    SSID_REDACTED = "<redacted>"
+
     @staticmethod
     def _clean_ssid(raw: str) -> Optional[str]:
-        """Return None if the value is empty, redacted, or a macOS privacy placeholder."""
+        """Return the SSID string, SSID_REDACTED sentinel, or None.
+
+        None  → value is empty / no network info found
+        SSID_REDACTED → macOS privacy is hiding the name (Location Services off)
+        str   → actual SSID
+        """
         value = raw.strip()
-        if not value or value == "<redacted>":
+        if not value:
             return None
+        if value == "<redacted>":
+            return WiFiSampler.SSID_REDACTED
         return value
 
     def _get_ssid(self) -> Optional[str]:
         """Return the connected WiFi network name (SSID), or None on failure.
 
-        On macOS 13+, all SSID APIs require Location Services to be enabled for
-        the terminal app (System Settings → Privacy & Security → Location Services).
-        When that permission is granted, one of the three methods below will succeed.
+        Uses scutil to read the AirPort dynamic-store entry, which embeds the
+        last WiFi scan as an NSKeyedArchiver binary plist containing SSID_STR —
+        no Location Services permission required (works on macOS 13+).
 
-        Methods tried in order:
-        1. networksetup -getairportnetwork <device>
-        2. ipconfig getsummary <device>
-        3. airport -I utility (deprecated, may be absent on macOS 15+)
+        Falls back to networksetup and airport for older macOS versions.
         """
+        # Primary: scutil CachedScanRecord (NSKeyedArchiver binary plist).
+        # Works on macOS 13+ without Location Services permission.
+        try:
+            import plistlib as _plistlib
+            _sc = subprocess.run(
+                ['scutil'],
+                input=b'open\nget State:/Network/Interface/en0/AirPort\nd.show\nclose\n',
+                capture_output=True, timeout=8,
+            )
+            _m = re.search(
+                r'CachedScanRecord\s*:\s*<data>\s*(0x[0-9a-fA-F]+)',
+                _sc.stdout.decode('utf-8', 'replace'),
+            )
+            if _m:
+                _raw = bytes.fromhex(_m.group(1)[2:])
+                _arch = _plistlib.loads(_raw)
+                _objs = _arch.get('$objects', [])
+
+                def _uid(ref):
+                    if hasattr(ref, 'data'):
+                        return _objs[ref.data]
+                    if isinstance(ref, int):
+                        return _objs[ref]
+                    return ref
+
+                for _obj in _objs:
+                    if not isinstance(_obj, dict):
+                        continue
+                    _keys = [_uid(k) for k in _obj.get('NS.keys', [])]
+                    _vals = [_uid(v) for v in _obj.get('NS.objects', [])]
+                    try:
+                        _idx = _keys.index('SSID_STR')
+                        _candidate = _vals[_idx]
+                        if isinstance(_candidate, str) and _candidate:
+                            return _candidate
+                    except (ValueError, IndexError):
+                        pass
+        except Exception:
+            pass
+
+        saw_redacted = False
+
+        # Fallback 1: networksetup (works on older macOS; returns <redacted> on 13+)
         device = self._get_wifi_device()
         candidates = [device] if device else []
         for d in ("en0", "en1", "en2", "en3"):
             if d not in candidates:
                 candidates.append(d)
-
-        # Method 1: networksetup
         for iface in candidates:
             try:
                 result = subprocess.run(
@@ -749,28 +797,14 @@ class WiFiSampler:
                     ssid = self._clean_ssid(
                         result.stdout.split("Current Wi-Fi Network:", 1)[1]
                     )
-                    if ssid:
+                    if ssid == self.SSID_REDACTED:
+                        saw_redacted = True
+                    elif ssid:
                         return ssid
             except Exception:
                 pass
 
-        # Method 2: ipconfig getsummary
-        for iface in candidates:
-            try:
-                result = subprocess.run(
-                    ["ipconfig", "getsummary", iface],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if result.returncode == 0:
-                    m = re.search(r'\bSSID\s*:\s*(.+)', result.stdout)
-                    if m:
-                        ssid = self._clean_ssid(m.group(1))
-                        if ssid:
-                            return ssid
-            except Exception:
-                pass
-
-        # Method 3: airport utility (removed in macOS 15 on some machines)
+        # Fallback 2: airport utility (deprecated; absent on some macOS 15+ machines)
         airport = (
             "/System/Library/PrivateFrameworks/Apple80211.framework"
             "/Versions/Current/Resources/airport"
@@ -784,12 +818,14 @@ class WiFiSampler:
                 m = re.search(r'\bSSID:\s+(.+)', result.stdout)
                 if m:
                     ssid = self._clean_ssid(m.group(1))
-                    if ssid:
+                    if ssid == self.SSID_REDACTED:
+                        saw_redacted = True
+                    elif ssid:
                         return ssid
         except Exception:
             pass
 
-        return None
+        return self.SSID_REDACTED if saw_redacted else None
 
     def _parse_output(self, output: str) -> Optional[WiFiSample]:
         """Parse system_profiler text output. Return None on parse failure."""
@@ -817,6 +853,15 @@ class WiFiSampler:
                     timeout=10,
                 )
                 if result.returncode == 0:
+                    # Opportunistically capture SSID from the first call if still unknown
+                    if self.wifi_ssid is None:
+                        m = re.search(
+                            r'Current Network Information:\s*\n\s+(.+?):', result.stdout
+                        )
+                        if m:
+                            candidate = self._clean_ssid(m.group(1))
+                            if candidate:  # captures both real names and SSID_REDACTED
+                                self.wifi_ssid = candidate
                     sample = self._parse_output(result.stdout)
                     if sample is not None:
                         self._samples.append(sample)
@@ -1138,7 +1183,9 @@ class Reporter:
         # WiFi Stability Score display (task 5.1)
         wifi_stability = results.get('wifi_stability')
         wifi_ssid = (wifi_stability or {}).get('wifi_ssid')
-        if wifi_ssid:
+        if wifi_ssid == WiFiSampler.SSID_REDACTED:
+            print("   WiFi Network: hidden by macOS privacy")
+        elif wifi_ssid:
             print(f"   WiFi Network: {wifi_ssid}")
         if wifi_stability is None:
             print("   WiFi Stability Score: N/A")
