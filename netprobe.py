@@ -42,6 +42,7 @@ class WiFiStabilityResult(TypedDict):
     wifi_score_type: str                 # "hardware" | "behavior-only" | "unavailable"
     wifi_samples: List[WiFiSample]       # Raw time-series samples
     avg_snr_db: Optional[float]          # Mean SNR across all samples; None if no hardware samples
+    wifi_ssid: Optional[str]             # Connected WiFi network name (SSID); None on non-macOS or parse failure
 
 
 class LocationManager:
@@ -592,7 +593,7 @@ class ConnectionTester:
                         time.sleep(sleep_time)
         finally:
             # Stop sampler and collect samples — always runs even if loop raises
-            sampler.stop()
+            sampler.stop(debug=self.debug)
             wifi_samples = sampler.get_samples()
             self.results['wifi_samples'] = wifi_samples
 
@@ -617,12 +618,14 @@ class ConnectionTester:
 
         # Calculate statistics and derive WiFi stability score
         stats = StatisticsCalculator.calculate_statistics(self.results)
-        self.results['wifi_stability'] = StatisticsCalculator.calculate_wifi_stability_score(
+        wifi_stability = StatisticsCalculator.calculate_wifi_stability_score(
             wifi_samples,
             stats.get('latency_stats', {}),
             stats.get('jitter_stats', {}),
             stats.get('packet_loss_stats', {}),
         )
+        wifi_stability['wifi_ssid'] = sampler.wifi_ssid
+        self.results['wifi_stability'] = wifi_stability
 
         if self.debug:
             print("\nTest completed!")
@@ -640,6 +643,7 @@ class WiFiSampler:
         self._samples: List[WiFiSample] = []
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.wifi_ssid: Optional[str] = None
 
     def start(self) -> None:
         """Start background sampling thread. No-op on non-macOS or non-WiFi."""
@@ -647,16 +651,17 @@ class WiFiSampler:
             return
         if not self._is_wifi_connected():
             return
+        self.wifi_ssid = self._get_ssid()
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._sample_loop, daemon=True)
         self._thread.start()
 
-    def stop(self) -> None:
+    def stop(self, debug: bool = False) -> None:
         """Signal thread to stop and join (2s timeout). Safe to call if not started."""
         self._stop_event.set()
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2)
-            if self._thread.is_alive():
+            if self._thread.is_alive() and debug:
                 print("⚠️  WiFiSampler: thread did not stop within 2 seconds", file=sys.stderr)
 
     def get_samples(self) -> List[WiFiSample]:
@@ -681,6 +686,110 @@ class WiFiSampler:
             return False
         except Exception:
             return False
+
+    def _get_wifi_device(self) -> Optional[str]:
+        """Return the macOS network device name for the Wi-Fi hardware port (e.g. en0).
+
+        Parses `networksetup -listallhardwareports` to find the device whose
+        port name contains 'Wi-Fi' or 'AirPort'.
+        """
+        try:
+            result = subprocess.run(
+                ["networksetup", "-listallhardwareports"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                lines = result.stdout.splitlines()
+                for i, line in enumerate(lines):
+                    if "Wi-Fi" in line or "AirPort" in line:
+                        for j in range(i + 1, min(i + 4, len(lines))):
+                            m = re.match(r'\s*Device:\s+(\S+)', lines[j])
+                            if m:
+                                return m.group(1)
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _clean_ssid(raw: str) -> Optional[str]:
+        """Return None if the value is empty, redacted, or a macOS privacy placeholder."""
+        value = raw.strip()
+        if not value or value == "<redacted>":
+            return None
+        return value
+
+    def _get_ssid(self) -> Optional[str]:
+        """Return the connected WiFi network name (SSID), or None on failure.
+
+        On macOS 13+, all SSID APIs require Location Services to be enabled for
+        the terminal app (System Settings → Privacy & Security → Location Services).
+        When that permission is granted, one of the three methods below will succeed.
+
+        Methods tried in order:
+        1. networksetup -getairportnetwork <device>
+        2. ipconfig getsummary <device>
+        3. airport -I utility (deprecated, may be absent on macOS 15+)
+        """
+        device = self._get_wifi_device()
+        candidates = [device] if device else []
+        for d in ("en0", "en1", "en2", "en3"):
+            if d not in candidates:
+                candidates.append(d)
+
+        # Method 1: networksetup
+        for iface in candidates:
+            try:
+                result = subprocess.run(
+                    ["networksetup", "-getairportnetwork", iface],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0 and "Current Wi-Fi Network:" in result.stdout:
+                    ssid = self._clean_ssid(
+                        result.stdout.split("Current Wi-Fi Network:", 1)[1]
+                    )
+                    if ssid:
+                        return ssid
+            except Exception:
+                pass
+
+        # Method 2: ipconfig getsummary
+        for iface in candidates:
+            try:
+                result = subprocess.run(
+                    ["ipconfig", "getsummary", iface],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0:
+                    m = re.search(r'\bSSID\s*:\s*(.+)', result.stdout)
+                    if m:
+                        ssid = self._clean_ssid(m.group(1))
+                        if ssid:
+                            return ssid
+            except Exception:
+                pass
+
+        # Method 3: airport utility (removed in macOS 15 on some machines)
+        airport = (
+            "/System/Library/PrivateFrameworks/Apple80211.framework"
+            "/Versions/Current/Resources/airport"
+        )
+        try:
+            result = subprocess.run(
+                [airport, "-I"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                m = re.search(r'\bSSID:\s+(.+)', result.stdout)
+                if m:
+                    ssid = self._clean_ssid(m.group(1))
+                    if ssid:
+                        return ssid
+        except Exception:
+            pass
+
+        return None
 
     def _parse_output(self, output: str) -> Optional[WiFiSample]:
         """Parse system_profiler text output. Return None on parse failure."""
@@ -1028,6 +1137,9 @@ class Reporter:
 
         # WiFi Stability Score display (task 5.1)
         wifi_stability = results.get('wifi_stability')
+        wifi_ssid = (wifi_stability or {}).get('wifi_ssid')
+        if wifi_ssid:
+            print(f"   WiFi Network: {wifi_ssid}")
         if wifi_stability is None:
             print("   WiFi Stability Score: N/A")
         else:
@@ -1061,6 +1173,7 @@ class Reporter:
     def export_json(results: Dict[str, Any], stats: Dict[str, Any], filename: str):
         """Export results to JSON file."""
         wifi = results.get('wifi_stability', {})
+        location = results.get('location', {})
         export_data = {
             'test_results': results,
             'statistics': stats,
@@ -1069,6 +1182,12 @@ class Reporter:
             'wifi_score_type': wifi.get('wifi_score_type', None),
             'wifi_samples': wifi.get('wifi_samples', []),
             'avg_snr_db': wifi.get('avg_snr_db', None),
+            'wifi_ssid': wifi.get('wifi_ssid', None),
+            'location_latitude': location.get('latitude', None),
+            'location_longitude': location.get('longitude', None),
+            'location_city': location.get('city', None),
+            'location_country': location.get('country', None),
+            'location_name': location.get('name', None),
         }
         
         with open(filename, 'w') as f:
@@ -1245,8 +1364,9 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug,
                     print("Cannot perform VPN testing without a supported VPN client.")
                     return
         
-        # Save original VPN state
-        vpn_manager.save_state()
+        # Save original VPN state (only when VPN comparison is requested)
+        if compare_vpn:
+            vpn_manager.save_state()
         
         all_results = []
         all_stats = []
@@ -1504,25 +1624,25 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug,
         if all_stats:
             min_quality_score = min(stats['quality_score'] for stats in all_stats)
             if min_quality_score < 70:
-                print(f"\\nWarning: Connection quality is below acceptable threshold (worst score: {min_quality_score})!")
+                print(f"\nWarning: Connection quality is below acceptable threshold (worst score: {min_quality_score})!")
                 exit_code = 1
             else:
-                print(f"\\nConnection quality is good (best score: {max(stats['quality_score'] for stats in all_stats)}).")
+                print(f"\nConnection quality is good (best score: {max(stats['quality_score'] for stats in all_stats)}).")
                 exit_code = 0
         else:
             exit_code = 1
-            
+
     except KeyboardInterrupt:
-        print("\\n\\nTest interrupted by user.")
+        print("\n\nTest interrupted by user.")
         exit_code = 1
     except Exception as e:
-        print(f"\\nError during testing: {str(e)}")
+        print(f"\nError during testing: {str(e)}")
         exit_code = 1
     finally:
-        # Always restore original VPN state
+        # Restore original VPN state only when VPN comparison was requested
         try:
-            if vpn_manager and hasattr(vpn_manager, 'original_state') and vpn_manager.original_state:
-                print("\\nRestoring original VPN state...")
+            if compare_vpn and vpn_manager and hasattr(vpn_manager, 'original_state') and vpn_manager.original_state:
+                print("\nRestoring original VPN state...")
                 vpn_manager.restore_state()
         except Exception as e:
             print(f"Warning: Failed to restore VPN state: {str(e)}")
