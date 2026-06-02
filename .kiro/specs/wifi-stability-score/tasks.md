@@ -100,7 +100,7 @@
   - _Requirements: 5.3, 2.4, 2.5_
   - _Boundary: StatisticsCalculator_
 
-- [ ] 6.3 Integration tests connecting sampler, calculator, and reporter
+- [x] 6.3 Integration tests connecting sampler, calculator, and reporter
   - `test_full_run_includes_wifi_result`: patch `WiFiSampler.get_samples` to return 2 `WiFiSample` dicts; run full mocked `ConnectionTester` test; assert `results['wifi_stability']` is present, `wifi_stability_score` is an int, `wifi_score_type == "hardware"` (patches at the `WiFiSampler.get_samples` boundary, not at subprocess level)
   - `test_json_export_includes_wifi_fields`: mock a complete test run result with wifi_stability populated; call `Reporter.export_json()`; assert output JSON contains all four keys (`wifi_stability_score`, `wifi_score_type`, `wifi_samples`, `avg_snr_db`)
   - `test_csv_export_includes_wifi_score`: same mock result; call `Reporter.export_csv()`; assert `wifi_stability_score` appears in CSV content and WiFi sample header row is present

@@ -1093,6 +1093,52 @@ class TestWiFiSamplerIntegration:
 
         mock_stop.assert_called_once()
 
+    @patch('time.sleep')
+    def test_full_run_includes_wifi_result(self, mock_sleep):
+        """Patch WiFiSampler.get_samples to return 2 WiFiSample dicts; run full mocked
+        ConnectionTester test; assert results['wifi_stability'] is present,
+        wifi_stability_score is an int, and wifi_score_type == 'hardware'. (task 6.3)"""
+        from netprobe import ConnectionTester, WiFiSampler
+
+        tester = ConnectionTester(duration=1)
+        _call = [0]
+        def _fake_time():
+            _call[0] += 1
+            return 1000.0 if _call[0] <= 1 else 1001.1
+
+        mock_samples = [
+            {'timestamp': 1000.0, 'rssi_dbm': -65, 'noise_dbm': -92, 'snr_db': 27},
+            {'timestamp': 1000.5, 'rssi_dbm': -67, 'noise_dbm': -94, 'snr_db': 27},
+        ]
+
+        with patch('time.time', side_effect=_fake_time), \
+             patch.object(tester, 'test_latency_and_packet_loss') as mock_ping, \
+             patch.object(tester, 'test_dns_resolution') as mock_dns, \
+             patch.object(tester, 'test_bandwidth') as mock_bandwidth, \
+             patch.object(tester, 'test_local_router') as mock_router, \
+             patch.object(WiFiSampler, 'start'), \
+             patch.object(WiFiSampler, 'stop'), \
+             patch.object(WiFiSampler, 'get_samples', return_value=mock_samples):
+
+            mock_ping.return_value = {
+                'host': '8.8.8.8',
+                'avg_latency_ms': 20.0,
+                'packet_loss_percent': 0.0,
+                'jitter_ms': 2.0,
+            }
+            mock_dns.return_value = {'domain': 'google.com', 'resolution_time_ms': 15.0}
+            mock_bandwidth.return_value = {'download_speed_mbps': 50.0}
+            mock_router.return_value = {'gateway': '192.168.1.1', 'avg_latency_ms': 5.0}
+
+            results = tester.run_extended_test()
+
+        assert 'wifi_stability' in results, "results must contain 'wifi_stability'"
+        ws = results['wifi_stability']
+        assert isinstance(ws['wifi_stability_score'], int), \
+            f"wifi_stability_score must be an int, got {type(ws['wifi_stability_score'])}"
+        assert ws['wifi_score_type'] == 'hardware', \
+            f"Expected wifi_score_type='hardware', got {ws['wifi_score_type']!r}"
+
 
 class TestPrintSummaryWifiStability:
     """Test Reporter.print_summary() displays wifi_stability_score (task 5.1)."""
