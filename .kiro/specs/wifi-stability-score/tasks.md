@@ -36,7 +36,7 @@
   - _Requirements: 2.1, 2.2, 2.4, 2.5_
   - _Boundary: StatisticsCalculator_
 
-- [ ] 3.2 (P) Implement behavior-only and unavailable score paths
+- [x] 3.2 (P) Implement behavior-only and unavailable score paths
   - Behavior-only path (len(samples) == 0, latency/jitter/packet_loss stats available): start from 100; apply packet loss penalties (-30 if avg > 1%, -15 if > 0.1%); apply latency CoV penalties (-20 if CoV > 0.5, -10 if > 0.2); apply jitter std_dev penalties (-20 if > 15ms, -10 if > 8ms); clamp to [0, 100]; return with `wifi_score_type="behavior-only"`, `avg_snr_db=None`, `wifi_samples=[]`
   - Unavailable path (len(samples) == 0 and no usable behavior stats): return `WiFiStabilityResult` with `wifi_stability_score=None`, `wifi_score_type="unavailable"`, `avg_snr_db=None`, `wifi_samples=[]`
   - Observable: with empty samples and jitter std_dev of 20ms, method returns behavior-only score below 80; with empty samples and empty stats, returns score=None and type="unavailable"

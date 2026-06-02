@@ -949,6 +949,47 @@ class TestWiFiStabilityScore:
         stats_after = StatisticsCalculator.calculate_statistics(results_stub)
         assert stats_after['quality_score'] == quality_before
 
+    def test_behavior_only_path(self):
+        """Empty samples + usable behavior stats → type='behavior-only', score < 80 when jitter std_dev=20ms and packet_loss>1% (req 2.3)."""
+        from netprobe import StatisticsCalculator
+
+        # jitter std_dev=20ms > 15ms → -20 penalty
+        # packet_loss avg=2% > 1% → -30 penalty
+        # latency CoV = 1/20 = 0.05 < 0.2 → 0 penalty
+        # expected score = 100 - 20 - 30 = 50 (< 80)
+        latency_stats = {'avg_ms': 20.0, 'std_dev_ms': 1.0}
+        jitter_stats = {'avg_ms': 18.0, 'std_dev_ms': 20.0}
+        packet_loss_stats = {'avg_percent': 2.0}
+
+        result = StatisticsCalculator.calculate_wifi_stability_score(
+            [],
+            latency_stats,
+            jitter_stats,
+            packet_loss_stats,
+        )
+
+        assert result['wifi_score_type'] == 'behavior-only'
+        assert result['avg_snr_db'] is None
+        assert result['wifi_samples'] == []
+        assert isinstance(result['wifi_stability_score'], int)
+        assert result['wifi_stability_score'] < 80  # -20 (jitter) + -30 (pkt loss) → score=50
+
+    def test_unavailable_path(self):
+        """Empty samples + empty behavior stats → score=None, type='unavailable' (req 2.4)."""
+        from netprobe import StatisticsCalculator
+
+        result = StatisticsCalculator.calculate_wifi_stability_score(
+            [],
+            {},
+            {},
+            {},
+        )
+
+        assert result['wifi_stability_score'] is None
+        assert result['wifi_score_type'] == 'unavailable'
+        assert result['avg_snr_db'] is None
+        assert result['wifi_samples'] == []
+
 
 if __name__ == '__main__':
     pytest.main([__file__])

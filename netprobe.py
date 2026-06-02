@@ -883,10 +883,53 @@ class StatisticsCalculator:
                 'avg_snr_db': avg_snr,
             }
 
-        # behavior-only and unavailable paths are handled in task 3.2
+        # behavior-only path: no hardware samples but at least one stats dict is non-empty
+        has_behavior_stats = any([
+            bool(latency_stats),
+            bool(jitter_stats),
+            bool(packet_loss_stats),
+        ])
+
+        if not has_behavior_stats:
+            # unavailable path: nothing to work with
+            return {
+                'wifi_stability_score': None,
+                'wifi_score_type': 'unavailable',
+                'wifi_samples': [],
+                'avg_snr_db': None,
+            }
+
+        # behavior-only path: penalise based on packet loss, latency CoV, jitter std_dev
+        score = 100
+
+        # Packet loss penalty (mutually exclusive tiers)
+        avg_loss = packet_loss_stats.get('avg_percent', 0) or 0
+        if avg_loss > 1:
+            score -= 30
+        elif avg_loss > 0.1:
+            score -= 15
+
+        # Latency CoV penalty
+        lat_mean = latency_stats.get('avg_ms', 0) or 0
+        lat_std = latency_stats.get('std_dev_ms', 0) or 0
+        lat_cov = (lat_std / lat_mean) if lat_mean != 0 else 0
+        if lat_cov > 0.5:
+            score -= 20
+        elif lat_cov > 0.2:
+            score -= 10
+
+        # Jitter std_dev penalty
+        jitter_std = jitter_stats.get('std_dev_ms', 0) or 0
+        if jitter_std > 15:
+            score -= 20
+        elif jitter_std > 8:
+            score -= 10
+
+        score = max(0, min(100, score))
+
         return {
-            'wifi_stability_score': None,
-            'wifi_score_type': 'unavailable',
+            'wifi_stability_score': score,
+            'wifi_score_type': 'behavior-only',
             'wifi_samples': [],
             'avg_snr_db': None,
         }
