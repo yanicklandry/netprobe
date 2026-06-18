@@ -1677,5 +1677,234 @@ class TestNetprobeCLIIntegration:
         assert call_kwargs['publish'] is False
 
 
+class TestDataCaptureIntegration:
+    """Integration tests for record_run orchestration (req 1.1, 1.6, 4.1, 4.3, 4.4, 5.1-5.3)."""
+
+    @pytest.fixture
+    def minimal_results(self):
+        return {
+            'test_scenario': 'default',
+            'latency': [],
+            'packet_loss': [],
+            'jitter': [],
+            'dns_times': [],
+            'bandwidth': None,
+            'local_router': [],
+            'start_time': None,
+            'end_time': None,
+        }
+
+    @pytest.fixture
+    def minimal_stats(self):
+        return {
+            'latency_stats': {},
+            'packet_loss_stats': {},
+            'jitter_stats': {},
+            'dns_stats': {},
+            'quality_score': 75,
+        }
+
+    def test_publish_false_writes_jsonl_no_notion(self, tmp_path, minimal_results, minimal_stats, capsys):
+        """(a) publish=False: writes one JSONL line and NotionPublisher is never constructed."""
+        from unittest.mock import patch
+        from data_capture import record_run, NotionConfig
+
+        log_path = str(tmp_path / 'log.jsonl')
+        config = NotionConfig(token='tok', database_id='db-123')
+
+        with patch('data_capture.NotionPublisher') as MockPublisher:
+            record_run(
+                minimal_results,
+                minimal_stats,
+                user='alice',
+                log_path=log_path,
+                publish=False,
+                notion_config=config,
+            )
+            MockPublisher.assert_not_called()
+
+        import json as _json
+        lines = (tmp_path / 'log.jsonl').read_text().splitlines()
+        assert len(lines) == 1
+        record = _json.loads(lines[0])
+        assert record['user'] == 'alice'
+
+        captured = capsys.readouterr()
+        assert 'Run record saved' in captured.out
+
+    def test_publish_true_with_ok_publisher(self, tmp_path, minimal_results, minimal_stats, capsys):
+        """(b) publish=True with mocked publisher returning ok=True: appends locally and prints Notion confirmation."""
+        from unittest.mock import patch, MagicMock
+        from data_capture import record_run, NotionConfig, PublishOutcome
+
+        log_path = str(tmp_path / 'log.jsonl')
+        config = NotionConfig(token='tok', database_id='db-123')
+
+        with patch('data_capture.NotionPublisher') as MockPublisher:
+            mock_instance = MagicMock()
+            MockPublisher.return_value = mock_instance
+            mock_instance.publish.return_value = PublishOutcome(ok=True)
+
+            record_run(
+                minimal_results,
+                minimal_stats,
+                user='alice',
+                log_path=log_path,
+                publish=True,
+                notion_config=config,
+            )
+
+            MockPublisher.assert_called_once()
+            mock_instance.publish.assert_called_once()
+
+        import json as _json
+        lines = (tmp_path / 'log.jsonl').read_text().splitlines()
+        assert len(lines) == 1
+
+        captured = capsys.readouterr()
+        assert 'Run record saved' in captured.out
+        assert 'Notion' in captured.out
+
+    def test_publish_true_with_none_config_prints_warning(self, tmp_path, minimal_results, minimal_stats, capsys):
+        """(c) notion_config=None with publish=True: prints credentials warning and no Notion call made."""
+        from unittest.mock import patch
+        from data_capture import record_run
+
+        log_path = str(tmp_path / 'log.jsonl')
+
+        with patch('data_capture.NotionPublisher') as MockPublisher:
+            record_run(
+                minimal_results,
+                minimal_stats,
+                user='alice',
+                log_path=log_path,
+                publish=True,
+                notion_config=None,
+            )
+            MockPublisher.assert_not_called()
+
+        captured = capsys.readouterr()
+        assert 'Warning' in captured.out
+        assert 'Notion' in captured.out or 'credentials' in captured.out
+
+    def test_publish_api_error_prints_warning_and_writes_local(self, tmp_path, minimal_results, minimal_stats, capsys):
+        """(d) mocked publisher returning PublishOutcome(ok=False, error='err'): prints API-error warning, local log still written."""
+        from unittest.mock import patch, MagicMock
+        from data_capture import record_run, NotionConfig, PublishOutcome
+
+        log_path = str(tmp_path / 'log.jsonl')
+        config = NotionConfig(token='tok', database_id='db-123')
+
+        with patch('data_capture.NotionPublisher') as MockPublisher:
+            mock_instance = MagicMock()
+            MockPublisher.return_value = mock_instance
+            mock_instance.publish.return_value = PublishOutcome(ok=False, error='err')
+
+            record_run(
+                minimal_results,
+                minimal_stats,
+                user='alice',
+                log_path=log_path,
+                publish=True,
+                notion_config=config,
+            )
+
+        import json as _json
+        lines = (tmp_path / 'log.jsonl').read_text().splitlines()
+        assert len(lines) == 1
+
+        captured = capsys.readouterr()
+        assert 'Warning' in captured.out
+        assert 'err' in captured.out
+
+
+class TestNotionPublisher:
+    """Tests for NotionPublisher property mapping and error handling (req 4.1, 4.3, 4.4)."""
+
+    def _make_full_record(self):
+        return {
+            'timestamp': '2024-01-15T12:00:00Z',
+            'user': 'alice',
+            'hostname': 'myhost',
+            'os': 'Darwin',
+            'platform': 'macOS',
+            'python_version': '3.12',
+            'quality_score': 85,
+            'latency_avg_ms': 12.5,
+            'packet_loss_percent': 0.0,
+            'jitter_avg_ms': 3.2,
+            'dns_avg_ms': 8.1,
+            'download_speed_mbps': 95.0,
+            'wifi_stability_score': 78,
+            'wifi_ssid': 'HomeNet',
+            'location_name': 'Home Office',
+            'city': 'Montreal',
+            'country': 'CA',
+        }
+
+    def test_maps_record_to_notion_properties_and_calls_pages_create(self):
+        """(e) maps a full record to documented properties and calls pages.create with the correct database_id."""
+        import sys
+        import importlib
+        from unittest.mock import MagicMock, patch
+
+        mock_notion = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_notion.Client.return_value = mock_client_instance
+        mock_notion.APIResponseError = Exception
+
+        with patch.dict(sys.modules, {'notion_client': mock_notion}):
+            import data_capture
+            importlib.reload(data_capture)
+            from data_capture import NotionConfig, NotionPublisher
+
+            config = NotionConfig(token='tok', database_id='db-123')
+            pub = NotionPublisher(config)
+            outcome = pub.publish(self._make_full_record())
+
+        assert outcome.ok is True
+        mock_notion.Client.assert_called_once_with(auth='tok')
+        mock_client_instance.pages.create.assert_called_once()
+
+        call_kwargs = mock_client_instance.pages.create.call_args.kwargs
+        assert call_kwargs['parent']['database_id'] == 'db-123'
+        props = call_kwargs['properties']
+        assert 'Name' in props
+        assert 'Timestamp' in props
+        assert 'User' in props
+        assert 'Hostname' in props
+        assert 'OS' in props
+        assert 'Quality Score' in props
+        assert 'Latency (ms)' in props
+        assert 'Packet Loss (%)' in props
+
+    def test_api_error_returns_publish_outcome_false_without_raising(self):
+        """(f) API-error path returns PublishOutcome(ok=False) without raising."""
+        import sys
+        import importlib
+        from unittest.mock import MagicMock, patch
+
+        class FakeAPIError(Exception):
+            pass
+
+        mock_notion = MagicMock()
+        mock_client_instance = MagicMock()
+        mock_notion.Client.return_value = mock_client_instance
+        mock_notion.APIResponseError = FakeAPIError
+        mock_client_instance.pages.create.side_effect = FakeAPIError('API failure')
+
+        with patch.dict(sys.modules, {'notion_client': mock_notion}):
+            import data_capture
+            importlib.reload(data_capture)
+            from data_capture import NotionConfig, NotionPublisher
+
+            config = NotionConfig(token='tok', database_id='db-123')
+            pub = NotionPublisher(config)
+            outcome = pub.publish(self._make_full_record())
+
+        assert outcome.ok is False
+        assert outcome.error is not None
+
+
 if __name__ == '__main__':
     pytest.main([__file__])
