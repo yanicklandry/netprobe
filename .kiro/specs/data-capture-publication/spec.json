@@ -1,16 +1,16 @@
 {
   "feature_name": "data-capture-publication",
   "created_at": "2026-06-02T00:00:00Z",
-  "updated_at": "2026-06-02T00:00:00Z",
+  "updated_at": "2026-06-18T01:00:00Z",
   "language": "en",
-  "phase": "initialized",
+  "phase": "design-generated",
   "approvals": {
     "requirements": {
-      "generated": false,
-      "approved": false
+      "generated": true,
+      "approved": true
     },
     "design": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "tasks": {
