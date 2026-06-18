@@ -243,7 +243,8 @@ class DeviceInfo:
 
 **Responsibilities & Constraints**
 - Produce a flat `dict` with: `timestamp` (ISO 8601 UTC), `user`, device fields, `test_scenario`, and measurements (`quality_score`, `latency_avg_ms`, `latency_min_ms`, `latency_max_ms`, `jitter_avg_ms`, `packet_loss_percent`, `dns_avg_ms`, `download_speed_mbps`, `wifi_stability_score`, `wifi_score_type`, `avg_snr_db`, `wifi_ssid`).
-- Include `latitude`, `longitude`, `city`, `country` only when `results['location']` is present and truthy (2.5); omit those keys entirely otherwise (2.6).
+- Treat location as "collected" only when `results['location']` is a dict that has **no `error` key** and a non-`None` `latitude` (2.5). When location is not collected (absent, error dict, or missing coordinates) omit **all** location keys entirely — do not emit null `latitude/longitude/city/country` (2.6).
+- The location dict has two real shapes in the codebase (verified): `--detect-location` yields `{latitude, longitude, city, country, ...}`; `--location "Name"` yields `{name, latitude, longitude, address, ...}` with **no `city`/`country`**. Therefore emit each of `location_name`, `latitude`, `longitude`, `city`, `country` only when that specific key is present and non-`None` (per-key presence, not all-or-nothing). `location_name` preserves the human label that motivates named-location tracking (e.g., "Hotel ABC").
 - Read `results`/`stats` defensively with `.get(...)`; missing measurements map to `None`, never raise.
 
 **Canonical field source map** (verified against `netprobe.py`; several measurements are nested — read each via chained `.get(...)` so missing/`None`/`{'error': ...}` intermediates degrade to `None`):
@@ -258,7 +259,7 @@ class DeviceInfo:
 | `dns_avg_ms` | `stats.get('dns_stats', {}).get('avg_ms')` |
 | `download_speed_mbps` | `(results.get('bandwidth') or {}).get('download_speed_mbps')` — note `results['bandwidth']` may be `None` or `{'error': ...}` on failure |
 | `wifi_stability_score` / `wifi_score_type` / `avg_snr_db` / `wifi_ssid` | `(results.get('wifi_stability') or {}).get('wifi_stability_score' / 'wifi_score_type' / 'avg_snr_db' / 'wifi_ssid')` |
-| `latitude` / `longitude` / `city` / `country` | `results['location'].get('latitude' / 'longitude' / 'city' / 'country')` — only when `results.get('location')` is truthy |
+| `location_name` / `latitude` / `longitude` / `city` / `country` | `results['location'].get('name' / 'latitude' / 'longitude' / 'city' / 'country')` — only when location is collected (dict present, no `error` key, non-`None` `latitude`), and each key emitted only if present and non-`None` |
 
 **Dependencies**
 - Inbound: record_run (P0)
@@ -391,6 +392,7 @@ Documented Notion property mapping (the database the user pre-creates must conta
 | Download (Mbps) | number | `download_speed_mbps` |
 | WiFi Score | number | `wifi_stability_score` |
 | SSID | rich_text | `wifi_ssid` |
+| Location Name | rich_text | `location_name` (omitted if absent) |
 | City | rich_text | `city` (omitted if absent) |
 | Country | rich_text | `country` (omitted if absent) |
 
@@ -430,7 +432,7 @@ All failures in this feature degrade gracefully and print a human-readable warni
 ## Testing Strategy
 
 ### Unit Tests
-- `RunRecord.build` includes all required keys and an ISO 8601 UTC `timestamp`; includes location keys when `results['location']` present (2.5) and omits them otherwise (2.6).
+- `RunRecord.build` includes all required keys and an ISO 8601 UTC `timestamp`. Cover the three real location shapes (2.5, 2.6): `--detect-location` dict (emits `latitude/longitude/city/country`, no `location_name`); `--location` dict (emits `location_name/latitude/longitude`, omits `city/country`); and the "not collected" cases — `location` absent, `location` an `{'error': ...}` dict, and a dict missing `latitude` — each of which must omit **all** location keys (no null fields).
 - `resolve_user` precedence: flag-only, env-only, both (flag wins, 3.3), neither (empty, 3.4) — patch `os.environ`.
 - `DeviceInfo.collect` returns exactly the four expected keys with string values (2.3).
 - `LocalLogWriter.append` creates the file when absent and appends one line per call without altering prior lines (1.2, 1.3) — use a `tmp_path`; and returns `False` without raising on a simulated `OSError` (1.5).

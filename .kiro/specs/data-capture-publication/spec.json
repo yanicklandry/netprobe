@@ -1,7 +1,7 @@
 {
   "feature_name": "data-capture-publication",
   "created_at": "2026-06-02T00:00:00Z",
-  "updated_at": "2026-06-18T01:00:00Z",
+  "updated_at": "2026-06-18T02:00:00Z",
   "language": "en",
   "phase": "design-generated",
   "approvals": {
@@ -11,7 +11,7 @@
     },
     "design": {
       "generated": true,
-      "approved": false
+      "approved": true
     },
     "tasks": {
       "generated": false,
