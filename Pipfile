@@ -13,6 +13,7 @@ pytest-mock = "*"
 tqdm = "*"
 geocoder = "*"
 psutil = "*"
+notion-client = ">=3.0"
 
 [dev-packages]
 
