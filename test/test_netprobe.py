@@ -1479,5 +1479,63 @@ class TestNotionConfig:
         assert cfg.database_id == 'db123'
 
 
+class TestNetprobeCLIIntegration:
+    """Tests for new CLI options --user, --publish, --log-file in main() — task 6.2."""
+
+    def test_help_shows_user_option(self):
+        """--help output must list --user option."""
+        from click.testing import CliRunner
+        import netprobe
+        runner = CliRunner()
+        result = runner.invoke(netprobe.main, ['--help'])
+        assert '--user' in result.output
+
+    def test_help_shows_publish_option(self):
+        """--help output must list --publish option."""
+        from click.testing import CliRunner
+        import netprobe
+        runner = CliRunner()
+        result = runner.invoke(netprobe.main, ['--help'])
+        assert '--publish' in result.output
+
+    def test_help_shows_log_file_option(self):
+        """--help output must list --log-file option."""
+        from click.testing import CliRunner
+        import netprobe
+        runner = CliRunner()
+        result = runner.invoke(netprobe.main, ['--help'])
+        assert '--log-file' in result.output
+
+    def test_record_run_called_after_stats(self, tmp_path, monkeypatch):
+        """record_run is called once per scenario with correct args."""
+        from unittest.mock import patch, MagicMock
+        from click.testing import CliRunner
+        import netprobe
+
+        log_file = str(tmp_path / 'out.jsonl')
+
+        with patch('netprobe.record_run') as mock_record_run, \
+             patch.object(netprobe.ConnectionTester, 'run_extended_test', return_value={
+                 'latency_results': [], 'packet_loss_results': [],
+                 'jitter_results': [], 'dns_results': [], 'bandwidth_results': [],
+                 'wifi_stability': None,
+             }), \
+             patch.object(netprobe.StatisticsCalculator, 'calculate_statistics', return_value={
+                 'quality_score': 85,
+             }), \
+             patch.object(netprobe.Reporter, 'print_summary'):
+            runner = CliRunner()
+            result = runner.invoke(netprobe.main, [
+                '--duration', '1',
+                '--no-interactive',
+                '--log-file', log_file,
+            ])
+
+        assert mock_record_run.call_count == 1
+        call_kwargs = mock_record_run.call_args.kwargs
+        assert call_kwargs['log_path'] == log_file
+        assert call_kwargs['publish'] is False
+
+
 if __name__ == '__main__':
     pytest.main([__file__])

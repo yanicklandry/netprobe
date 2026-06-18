@@ -49,7 +49,7 @@
   - Never raises to the caller; `record_run(...)` with `publish=False` and a writable temp path completes without error and the JSONL file contains exactly one valid JSON line
   - _Requirements: 1.5, 1.6, 4.2, 4.4, 5.1, 5.2, 5.3_
 
-- [ ] 6.2 Wire CLI options and record_run call into netprobe.py
+- [x] 6.2 Wire CLI options and record_run call into netprobe.py
   - Add `--user` (string, default `None`), `--publish` (is_flag, default False), and `--log-file` (string, default `'netprobe-results.jsonl'`) Click options to `main()` and its parameter list
   - Resolve `user = resolve_user(user_flag)` and `notion_config = NotionConfig.from_env() if publish else None` once before the scenario loop
   - Call `record_run(results, stats, user=user, log_path=log_file, publish=publish, notion_config=notion_config)` inside the scenario loop after `stats = StatisticsCalculator.calculate_statistics(results)` and after location attachment (after line that sets `results['location']`)

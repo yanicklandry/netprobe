@@ -26,6 +26,7 @@ import dns.exception
 from tqdm import tqdm
 import geocoder
 from vpn_manager import VPNManager
+from data_capture import record_run, resolve_user, NotionConfig, DEFAULT_LOG_PATH
 
 
 class WiFiSample(TypedDict):
@@ -1288,7 +1289,10 @@ class Reporter:
 @click.option('--detect-location', is_flag=True, help='Auto-detect current location')
 @click.option('--no-interactive', is_flag=True, help='Skip interactive VPN prompts (for automation)')
 @click.option('--check-isolation', is_flag=True, help='Check network isolation before testing')
-def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug, location, detect_location, no_interactive, check_isolation):
+@click.option('--user', default=None, help='User identity for run records (or set NETPROBE_USER env var)')
+@click.option('--publish', is_flag=True, help='Publish run records to Notion database')
+@click.option('--log-file', default='netprobe-results.jsonl', help='Local JSONL log file path (default: netprobe-results.jsonl)')
+def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug, location, detect_location, no_interactive, check_isolation, user, publish, log_file):
     """
     NetProbe - Internet Connection Reliability Tool
     
@@ -1417,7 +1421,11 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug,
         
         all_results = []
         all_stats = []
-        
+
+        # Resolve data-capture configuration once before the scenario loop
+        resolved_user = resolve_user(user)
+        notion_config = NotionConfig.from_env() if publish else None
+
         # Determine test scenarios
         test_scenarios = []
         if compare_vpn:
@@ -1534,7 +1542,10 @@ def main(duration, endpoints, export_json, export_csv, compare_vpn, icmp, debug,
             
             # Calculate statistics
             stats = StatisticsCalculator.calculate_statistics(results)
-            
+
+            # Persist and optionally publish the run record
+            record_run(results, stats, user=resolved_user, log_path=log_file, publish=publish, notion_config=notion_config)
+
             # Store results for comparison
             all_results.append(results)
             all_stats.append(stats)
