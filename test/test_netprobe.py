@@ -1479,6 +1479,146 @@ class TestNotionConfig:
         assert cfg.database_id == 'db123'
 
 
+class TestRunRecord:
+    """Tests for RunRecord.build() — requirements 1.2, 1.3, 1.5, 2.1, 2.2, 2.3, 2.5, 2.6."""
+
+    _BASE_STATS = {
+        'quality_score': 80,
+        'latency_stats': {'avg_ms': 20, 'min_ms': 10, 'max_ms': 40},
+        'jitter_stats': {'avg_ms': 5},
+        'packet_loss_stats': {'avg_percent': 0.0},
+        'dns_stats': {'avg_ms': 12},
+    }
+    _BASE_DEVICE = {
+        'hostname': 'tester',
+        'os': 'Linux',
+        'platform': 'Linux-5.0',
+        'python_version': '3.12.0',
+    }
+    _TIMESTAMP = '2026-06-18T12:00:00Z'
+
+    def _build(self, results: dict) -> dict:
+        from data_capture import RunRecord
+        return RunRecord.build(
+            results=results,
+            stats=self._BASE_STATS,
+            user='alice',
+            device=self._BASE_DEVICE,
+            timestamp=self._TIMESTAMP,
+        )
+
+    # --- required keys always present ---
+
+    def test_required_keys_present(self):
+        record = self._build({})
+        for key in ('user', 'hostname', 'os', 'platform', 'python_version',
+                    'test_scenario', 'quality_score', 'timestamp'):
+            assert key in record, f"required key '{key}' missing from record"
+
+    def test_user_value_set(self):
+        record = self._build({})
+        assert record['user'] == 'alice'
+
+    # --- timestamp is ISO 8601 UTC ---
+
+    def test_timestamp_is_iso8601_utc(self):
+        record = self._build({})
+        ts = record['timestamp']
+        # Must end with 'Z' or '+00:00'
+        assert ts.endswith('Z') or ts.endswith('+00:00'), (
+            f"timestamp '{ts}' is not ISO 8601 UTC"
+        )
+
+    # --- location shape 1: detect-location (city/country present, no name) ---
+
+    def test_detect_location_shape(self):
+        results = {
+            'location': {
+                'latitude': 45.5,
+                'longitude': -73.5,
+                'city': 'Montreal',
+                'country': 'CA',
+            }
+        }
+        record = self._build(results)
+        assert record.get('latitude') == 45.5
+        assert record.get('longitude') == -73.5
+        assert record.get('city') == 'Montreal'
+        assert record.get('country') == 'CA'
+        assert 'location_name' not in record
+
+    # --- location shape 2: --location flag (name present, no city/country) ---
+
+    def test_named_location_shape(self):
+        results = {
+            'location': {
+                'name': 'Hotel ABC',
+                'latitude': 45.5,
+                'longitude': -73.5,
+                'address': '123 Main St',
+            }
+        }
+        record = self._build(results)
+        assert record.get('location_name') == 'Hotel ABC'
+        assert record.get('latitude') == 45.5
+        assert record.get('longitude') == -73.5
+        assert 'city' not in record
+        assert 'country' not in record
+
+    # --- location shape 3: absent/error/no-latitude — no location keys emitted ---
+
+    def test_location_absent_emits_no_location_keys(self):
+        record = self._build({})
+        for key in ('latitude', 'longitude', 'city', 'country', 'location_name'):
+            assert key not in record, f"unexpected location key '{key}' when location absent"
+
+    def test_location_error_dict_emits_no_location_keys(self):
+        record = self._build({'location': {'error': 'geolocation failed'}})
+        for key in ('latitude', 'longitude', 'city', 'country', 'location_name'):
+            assert key not in record, f"unexpected location key '{key}' when location is error dict"
+
+    def test_location_without_latitude_emits_no_location_keys(self):
+        record = self._build({'location': {'city': 'X', 'country': 'Y'}})
+        for key in ('latitude', 'longitude', 'city', 'country', 'location_name'):
+            assert key not in record, f"unexpected location key '{key}' when latitude absent"
+
+
+class TestLocalLogWriter:
+    """Tests for LocalLogWriter.append() — requirements 1.2, 1.3, 1.5."""
+
+    def test_creates_file_on_first_write(self, tmp_path):
+        from data_capture import LocalLogWriter
+        log_file = tmp_path / 'run.jsonl'
+        writer = LocalLogWriter(str(log_file))
+        result = writer.append({'key': 'val'})
+        assert result is True
+        assert log_file.exists()
+        lines = log_file.read_text().splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0]) == {'key': 'val'}
+
+    def test_append_does_not_modify_prior_lines(self, tmp_path):
+        from data_capture import LocalLogWriter
+        log_file = tmp_path / 'run.jsonl'
+        writer = LocalLogWriter(str(log_file))
+        writer.append({'seq': 1})
+        writer.append({'seq': 2})
+        lines = log_file.read_text().splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[0]) == {'seq': 1}
+        assert json.loads(lines[1]) == {'seq': 2}
+
+    def test_returns_false_on_oserror(self, tmp_path):
+        from data_capture import LocalLogWriter
+        from unittest.mock import patch
+        log_file = tmp_path / 'run.jsonl'
+        writer = LocalLogWriter(str(log_file))
+        with patch('builtins.open', side_effect=OSError('disk full')):
+            result = writer.append({'key': 'val'})
+        assert result is False
+        assert not log_file.exists()
+
+
 class TestNetprobeCLIIntegration:
     """Tests for new CLI options --user, --publish, --log-file in main() — task 6.2."""
 

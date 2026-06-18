@@ -57,7 +57,7 @@
   - _Requirements: 1.1, 1.4, 3.1, 3.2, 4.4_
 
 - [ ] 7. Tests
-- [ ] 7.1 Unit tests for all data_capture components
+- [x] 7.1 Unit tests for all data_capture components
   - `TestDeviceInfo`: `collect()` returns exactly the four keys (`hostname`, `os`, `platform`, `python_version`) as non-None strings
   - `TestResolveUser`: four precedence cases — flag only, env only (`NETPROBE_USER`), both (flag wins), neither (empty string) — patch `os.environ`
   - `TestNotionConfig`: `from_env()` returns `None` when either credential missing, returns a populated config when both present — patch `os.environ`
