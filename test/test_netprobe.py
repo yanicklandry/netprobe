@@ -1393,5 +1393,91 @@ class TestReporterWifiExport:
             "WiFi samples header must be written even when wifi_stability is absent"
 
 
+class TestDeviceInfo:
+    """Tests for DeviceInfo.collect() — requirement 2.3."""
+
+    def test_collect_returns_all_four_keys(self):
+        from data_capture import DeviceInfo
+        result = DeviceInfo.collect()
+        assert set(result.keys()) == {'hostname', 'os', 'platform', 'python_version'}
+
+    def test_collect_values_are_strings(self):
+        from data_capture import DeviceInfo
+        result = DeviceInfo.collect()
+        for key, value in result.items():
+            assert isinstance(value, str), f"{key} must be a string, got {type(value)}"
+
+    def test_collect_values_are_non_none(self):
+        from data_capture import DeviceInfo
+        result = DeviceInfo.collect()
+        for key, value in result.items():
+            assert value is not None, f"{key} must not be None"
+
+    def test_collect_falls_back_on_socket_error(self, monkeypatch):
+        import socket
+        from data_capture import DeviceInfo
+        monkeypatch.setattr(socket, 'gethostname', lambda: (_ for _ in ()).throw(OSError("fail")))
+        result = DeviceInfo.collect()
+        assert set(result.keys()) == {'hostname', 'os', 'platform', 'python_version'}
+        assert result['hostname'] == ''
+
+
+class TestResolveUser:
+    """Tests for resolve_user() precedence — requirements 3.1-3.4."""
+
+    def test_cli_flag_only(self, monkeypatch):
+        from data_capture import resolve_user
+        monkeypatch.delenv('NETPROBE_USER', raising=False)
+        assert resolve_user('alice') == 'alice'
+
+    def test_env_only(self, monkeypatch):
+        from data_capture import resolve_user
+        monkeypatch.setenv('NETPROBE_USER', 'bob')
+        assert resolve_user('') == 'bob'
+        assert resolve_user(None) == 'bob'
+
+    def test_flag_wins_over_env(self, monkeypatch):
+        from data_capture import resolve_user
+        monkeypatch.setenv('NETPROBE_USER', 'bob')
+        assert resolve_user('alice') == 'alice'
+
+    def test_neither_returns_empty_string(self, monkeypatch):
+        from data_capture import resolve_user
+        monkeypatch.delenv('NETPROBE_USER', raising=False)
+        assert resolve_user('') == ''
+        assert resolve_user(None) == ''
+
+
+class TestNotionConfig:
+    """Tests for NotionConfig.from_env() — requirements 3.1-3.4, 4.2."""
+
+    def test_returns_none_when_token_missing(self, monkeypatch):
+        from data_capture import NotionConfig
+        monkeypatch.delenv('NOTION_TOKEN', raising=False)
+        monkeypatch.setenv('NOTION_DATABASE_ID', 'db123')
+        assert NotionConfig.from_env() is None
+
+    def test_returns_none_when_database_id_missing(self, monkeypatch):
+        from data_capture import NotionConfig
+        monkeypatch.setenv('NOTION_TOKEN', 'secret_tok')
+        monkeypatch.delenv('NOTION_DATABASE_ID', raising=False)
+        assert NotionConfig.from_env() is None
+
+    def test_returns_none_when_both_missing(self, monkeypatch):
+        from data_capture import NotionConfig
+        monkeypatch.delenv('NOTION_TOKEN', raising=False)
+        monkeypatch.delenv('NOTION_DATABASE_ID', raising=False)
+        assert NotionConfig.from_env() is None
+
+    def test_returns_config_when_both_present(self, monkeypatch):
+        from data_capture import NotionConfig
+        monkeypatch.setenv('NOTION_TOKEN', 'secret_tok')
+        monkeypatch.setenv('NOTION_DATABASE_ID', 'db123')
+        cfg = NotionConfig.from_env()
+        assert cfg is not None
+        assert cfg.token == 'secret_tok'
+        assert cfg.database_id == 'db123'
+
+
 if __name__ == '__main__':
     pytest.main([__file__])

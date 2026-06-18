@@ -8,7 +8,7 @@
   - _Requirements: 4.1_
 
 - [ ] 2. Create data_capture.py with leaf components
-- [ ] 2.1 Create data_capture.py and implement device info, user identity, and Notion config
+- [x] 2.1 Create data_capture.py and implement device info, user identity, and Notion config
   - Create `data_capture.py` at the project root with all stdlib imports and type annotations matching design.md contracts
   - Implement `DeviceInfo.collect()` returning `{'hostname', 'os', 'platform', 'python_version'}` using `socket`, `platform`, `sys`; fall back to empty strings on any collection error without raising
   - Implement `resolve_user(cli_user)`: return `cli_user` if non-empty, else `os.environ.get('NETPROBE_USER', '')`, empty string when neither is set
@@ -17,14 +17,14 @@
   - _Requirements: 2.3, 3.1, 3.2, 3.3, 3.4, 4.2_
 
 - [ ] 3. Canonical run record builder
-- [ ] 3.1 Implement RunRecord.build() with all measurement fields and per-key location emission
+- [x] 3.1 Implement RunRecord.build() with all measurement fields and per-key location emission
   - Build a flat `dict` with: `timestamp` (ISO 8601 UTC via `datetime.now(timezone.utc).isoformat()`), `user`, device fields from `DeviceInfo.collect()`, `test_scenario`, and all measurements using chained defensive `.get()` per the source map in design.md (including the nested `results['bandwidth']` and `results['wifi_stability']` paths)
   - Emit location fields only when `results.get('location')` is a dict without an `error` key and with a non-`None` `latitude`; emit each of `location_name`, `latitude`, `longitude`, `city`, `country` only when that specific key is present and non-`None`
   - A `--detect-location` location dict (has `city`/`country`, no `name`) emits `latitude/longitude/city/country` but not `location_name`; a `--location` dict (has `name`, no `city/country`) emits `location_name/latitude/longitude` but not `city/country`; absent, error, or no-`latitude` dicts produce zero location keys in the record
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
 - [ ] 4. Local JSONL log writer
-- [ ] 4.1 Implement LocalLogWriter with append-only JSONL semantics
+- [x] 4.1 Implement LocalLogWriter with append-only JSONL semantics
   - `LocalLogWriter(path: str)` stores the target path; `append(record: dict) -> bool` opens the file in append mode (`'a'`), writes `json.dumps(record) + '\n'`, and returns `True`
   - Creates the file when it does not exist; does not truncate or rewrite existing lines
   - Catches `OSError`/`IOError` and returns `False` without raising so the caller can warn and continue
@@ -32,7 +32,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
 - [ ] 5. Notion publisher
-- [ ] 5.1 Implement NotionPublisher with lazy import and graceful failure
+- [x] 5.1 Implement NotionPublisher with lazy import and graceful failure
   - `NotionPublisher(config: NotionConfig)` stores config; `publish(record: dict) -> PublishOutcome` lazily imports `notion_client`, constructs `Client(auth=config.token)`, and calls `client.pages.create(parent={"database_id": config.database_id}, properties={...})` with the full property mapping from design.md (title, date, rich_text, number types)
   - Define `PublishOutcome` as a dataclass with `ok: bool` and `error: str | None`
   - Map optional location fields (`location_name`, `city`, `country`) only when present in the record; omit those Notion properties entirely when absent
@@ -41,7 +41,7 @@
   - _Requirements: 4.1, 4.3, 4.4, 4.5, 5.2, 5.3_
 
 - [ ] 6. Integration: orchestration and CLI wiring
-- [ ] 6.1 Implement record_run orchestration function in data_capture.py
+- [x] 6.1 Implement record_run orchestration function in data_capture.py
   - `record_run(results, stats, user, log_path, publish, notion_config)` sequences: build record via `RunRecord.build()` → append locally via `LocalLogWriter(log_path).append(record)` → optionally publish
   - Always writes local log first; on success print `f"Log saved: {log_path}"`; on `False` return print an error line and continue to the publish step (1.5, 1.6)
   - When `publish=True` and `notion_config is None`: print a credentials-missing warning and skip; when `publish=False`: make no Notion calls (4.2, 4.4, 5.3)
